@@ -38,6 +38,44 @@ func USDT(amount int64) int64 {
 	return amount * 1_000_000
 }
 
+// CreateDevshardQAUpgradeHandler runs ONLY the new devshard2 param/escrow
+// backfill, for a chain that has ALREADY applied the real "v0.2.13" upgrade
+// (testnet-3, height 2099). It deliberately skips every other v0.2.13 step
+// (bounty rewards, bridge setup, governance tally, guardian multiplier, authz
+// grants, model params, confirmation-weight/PoC changes) because those already
+// ran and re-running them would double-apply (e.g. bounty payouts). The three
+// functions it calls are idempotent/additive:
+//   - setDevshardEscrowParams: re-sets idempotent constants and backfills the
+//     new param fields (seal grace, fees, timeouts, validation/vote) only if 0.
+//   - backfillDevshardEscrowFees: sets per-escrow fees only if 0.
+//   - setDevshardApprovedV2Version: additive.
+//
+// QA-ONLY: do not use this handler name for an official upgrade.
+func CreateDevshardQAUpgradeHandler(
+	mm *module.Manager,
+	configurator module.Configurator,
+	k keeper.Keeper,
+) upgradetypes.UpgradeHandler {
+	return func(ctx context.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+		k.LogInfo("starting devshard2-qa upgrade", types.Upgrades, "version", DevshardQAUpgradeName)
+		if err := setDevshardEscrowParams(ctx, k); err != nil {
+			return nil, err
+		}
+		if err := backfillDevshardEscrowFees(ctx, k); err != nil {
+			return nil, err
+		}
+		if err := setDevshardApprovedV2Version(ctx, k); err != nil {
+			return nil, err
+		}
+		toVM, err := mm.RunMigrations(ctx, configurator, fromVM)
+		if err != nil {
+			return toVM, err
+		}
+		k.LogInfo("successfully upgraded", types.Upgrades, "version", DevshardQAUpgradeName)
+		return toVM, nil
+	}
+}
+
 type BountyReward struct {
 	Address string
 	Amount  int64

@@ -67,6 +67,9 @@ func (app *App) setupUpgradeHandlers() {
 	app.UpgradeKeeper.SetUpgradeHandler(v0_2_11.UpgradeName, v0_2_11.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.DistrKeeper, app.BlsKeeper))
 	app.UpgradeKeeper.SetUpgradeHandler(v0_2_12.UpgradeName, v0_2_12.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.DistrKeeper, app.BlsKeeper, app.AuthzKeeper, app.FeeGrantKeeper))
 	app.UpgradeKeeper.SetUpgradeHandler(v0_2_13.UpgradeName, v0_2_13.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.AuthzKeeper, app.GovKeeper))
+	// QA-only: re-applies just the devshard2 param/escrow backfill on a chain that
+	// already ran the real v0.2.13 upgrade. Never use this name for an official upgrade.
+	app.UpgradeKeeper.SetUpgradeHandler(v0_2_13.DevshardQAUpgradeName, v0_2_13.CreateDevshardQAUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
 }
 
 func (app *App) registerMigrations() {
