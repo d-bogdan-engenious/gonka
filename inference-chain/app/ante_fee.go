@@ -118,7 +118,8 @@ func isExemptMessageType(msg sdk.Msg) bool {
 	// PoC duty messages (throttled by PocPeriodValidationDecorator window checks)
 	case *inferencetypes.MsgSubmitPocBatch,
 		*inferencetypes.MsgSubmitPocValidationsV2,
-		*inferencetypes.MsgMLNodeWeightDistribution:
+		*inferencetypes.MsgMLNodeWeightDistribution,
+		*inferencetypes.MsgSubmitSeed:
 		return true
 
 	// Inference validation duty (throttled by ValidationEarlyRejectDecorator)
@@ -135,11 +136,21 @@ func isExemptMessageType(msg sdk.Msg) bool {
 		*inferencetypes.MsgRevalidateInference:
 		return true
 
+	// Routine host duties on a fixed schedule (GON-85 #1129). Not user-discretionary, not sybil vectors.
+	case *inferencetypes.MsgSubmitHardwareDiff,
+		*inferencetypes.MsgClaimRewards:
+		return true
+
+	// Devshard escrow settlement (GON-85 #1160) — protocol disbursement, allowlist-restricted.
+	case *inferencetypes.MsgSettleDevshardEscrow:
+		return true
+
 	// BLS DKG protocol messages (epoch-scoped, duplicate-checked, deadline-enforced)
 	case *blstypes.MsgSubmitDealerPart,
 		*blstypes.MsgSubmitVerificationVector,
 		*blstypes.MsgSubmitGroupKeyValidationSignature,
-		*blstypes.MsgSubmitPartialSignature:
+		*blstypes.MsgSubmitPartialSignature,
+		*blstypes.MsgRespondDealerComplaints:
 		return true
 
 	// NOTE: MsgRequestThresholdSignature is intentionally NOT exempt.
