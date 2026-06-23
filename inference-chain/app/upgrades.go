@@ -69,6 +69,11 @@ func (app *App) setupUpgradeHandlers() {
 	app.setTrackedUpgradeHandler(v0_2_12.UpgradeName, v0_2_12.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.DistrKeeper, app.BlsKeeper, app.AuthzKeeper, app.FeeGrantKeeper))
 	app.setTrackedUpgradeHandler(v0_2_13.UpgradeName, v0_2_13.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.AuthzKeeper, app.GovKeeper))
 	app.setTrackedUpgradeHandler(v0_2_14.UpgradeName, v0_2_14.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	// Throwaway in-place upgrade name for testnet-3 maintenance-windows QA:
+	// the official "v0.2.14" name was already applied on testnet-3 (GON-191
+	// build), so reuse the exact v0_2_14 handler body under a fresh name.
+	// Same logic => safe (capability guard + idempotent backfills + RunMigrations).
+	app.setTrackedUpgradeHandler("v0.2.14-mw", v0_2_14.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
 }
 
 func (app *App) registerMigrations() {
