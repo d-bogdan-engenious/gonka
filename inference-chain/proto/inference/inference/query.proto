@@ -35,6 +35,7 @@ import "inference/inference/poc_validation_snapshot.proto";
 import "inference/inference/devshard_escrow.proto";
 import "inference/inference/preserved_nodes_snapshot.proto";
 import "inference/inference/poc_delegation.proto";
+import "inference/inference/claim_recipient.proto";
 
 option go_package = "github.com/productscience/inference/x/inference/types";
 
@@ -441,6 +442,11 @@ service Query {
 
   rpc PoCDelegation (QueryPoCDelegationRequest) returns (QueryPoCDelegationResponse) {
     option (google.api.http).get = "/productscience/inference/inference/poc_delegation/{participant}";
+  }
+
+  // Lists the scheduled per-epoch claim recipient overrides for a participant.
+  rpc ListClaimRecipients (QueryListClaimRecipientsRequest) returns (QueryListClaimRecipientsResponse) {
+    option (google.api.http).get = "/productscience/inference/inference/list_claim_recipients/{participant}";
   }
 }
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -1186,4 +1192,12 @@ message QueryGetDevshardHostEpochStatsRequest {
 message QueryGetDevshardHostEpochStatsResponse {
   DevshardHostEpochStats stats = 1;
   bool found = 2;
+}
+
+message QueryListClaimRecipientsRequest {
+  string participant = 1;
+}
+
+message QueryListClaimRecipientsResponse {
+  repeated ClaimRecipientEntry entries = 1 [(gogoproto.nullable) = false];
 }
