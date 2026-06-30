@@ -18,6 +18,7 @@ import (
 	"github.com/productscience/inference/app/upgrades/v0_2_13"
 	"github.com/productscience/inference/app/upgrades/v0_2_14"
 	"github.com/productscience/inference/app/upgrades/v0_2_14_claimrec"
+	"github.com/productscience/inference/app/upgrades/v0_2_14_claimrec2"
 	v0_2_2 "github.com/productscience/inference/app/upgrades/v0_2_2"
 	v0_2_3 "github.com/productscience/inference/app/upgrades/v0_2_3"
 	"github.com/productscience/inference/app/upgrades/v0_2_4"
@@ -71,6 +72,7 @@ func (app *App) setupUpgradeHandlers() {
 	app.UpgradeKeeper.SetUpgradeHandler(v0_2_13.UpgradeName, v0_2_13.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.AuthzKeeper, app.GovKeeper))
 	app.UpgradeKeeper.SetUpgradeHandler(v0_2_14.UpgradeName, v0_2_14.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
 	app.UpgradeKeeper.SetUpgradeHandler(v0_2_14_claimrec.UpgradeName, v0_2_14_claimrec.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	app.UpgradeKeeper.SetUpgradeHandler(v0_2_14_claimrec2.UpgradeName, v0_2_14_claimrec2.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
 }
 
 func (app *App) registerMigrations() {
