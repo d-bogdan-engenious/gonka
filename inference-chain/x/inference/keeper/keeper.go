@@ -114,11 +114,12 @@ type (
 		DevshardHostEpochStatsMap collections.Map[collections.Pair[uint64, sdk.AccAddress], types.DevshardHostEpochStats]
 		DevshardEscrowsByEpoch    collections.Map[collections.Pair[uint64, uint64], collections.NoValue]
 		// PoC delegation collections
-		PoCDelegations              collections.Map[collections.Pair[string, string], types.PoCDelegation]
-		PoCRefusals                 collections.KeySet[collections.Pair[string, string]]
-		PoCDirectIntents            collections.KeySet[collections.Pair[string, string]]
-		DelegationSnapshot          collections.Item[types.DelegationSnapshot]
-		BootstrapDelegationSnapshot collections.Item[types.BootstrapDelegationSnapshot]
+		PoCDelegations                   collections.Map[collections.Pair[string, string], types.PoCDelegation]
+		PoCRefusals                      collections.KeySet[collections.Pair[string, string]]
+		PoCDirectIntents                 collections.KeySet[collections.Pair[string, string]]
+		DelegationSnapshot               collections.Item[types.DelegationSnapshot]
+		BootstrapDelegationSnapshot      collections.Item[types.BootstrapDelegationSnapshot]
+		DelegationRewardTransferSnapshot collections.Item[types.DelegationRewardTransferSnapshot]
 		// Per-participant, per-epoch recipient overrides for MsgClaimRewards.
 		// Set by cold key via MsgSetClaimRecipients; retained after claim so
 		// late same-epoch payouts can resolve the same recipient, then pruned
@@ -601,6 +602,12 @@ func NewKeeper(
 			types.BootstrapDelegationSnapshotPrefix,
 			"bootstrap_delegation_snapshot",
 			codec.CollValue[types.BootstrapDelegationSnapshot](cdc),
+		),
+		DelegationRewardTransferSnapshot: collections.NewItem(
+			sb,
+			types.DelegationRewardTransferSnapshotPrefix,
+			"delegation_reward_transfer_snapshot",
+			codec.CollValue[types.DelegationRewardTransferSnapshot](cdc),
 		),
 		ClaimRecipients: collections.NewMap(
 			sb,

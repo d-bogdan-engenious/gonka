@@ -103,9 +103,10 @@ var (
 	// canonical bech32 address.
 	BridgeTransactionValidatorsPrefix = collections.NewPrefix(64)
 	PreservedNodesSnapshotPrefix      = collections.NewPrefix(65)
-	ClaimRecipientsPrefix             = collections.NewPrefix(106)
-	ClaimRecipientsByEpochPrefix      = collections.NewPrefix(107)
-	ParamsKey                         = []byte("p_inference")
+	ClaimRecipientsPrefix                  = collections.NewPrefix(106)
+	ClaimRecipientsByEpochPrefix           = collections.NewPrefix(107)
+	DelegationRewardTransferSnapshotPrefix = collections.NewPrefix(108)
+	ParamsKey                              = []byte("p_inference")
 )
 
 func KeyPrefix(p string) []byte {
