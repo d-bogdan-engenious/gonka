@@ -1,0 +1,35 @@
+name: SMST regression (QA-55 #1447+#1455)
+on:
+  push:
+    branches: [regress-v0214-merged]
+  workflow_dispatch: {}
+jobs:
+  regress:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: decentralized-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: 1. FULL UNIT SUITE
+        run: go test ./poc/artifacts/ -count=1
+      - name: 2. RACE SUBSET
+        run: go test ./poc/artifacts/ -race -run 'TestCOW|TestDeferred|TestFlushedRoots|TestSMSTCOW|TestSMSTDefaults|TestParallelHash|TestSMSTAttackerScenarios' -count=1
+      - name: 3. MY FINDINGS @ large N
+        env:
+          SMST_FIND_N: '300000'
+          SMST_FIND_FLUSH: '2000'
+          SMST_FIND_K: '200'
+        run: go test ./poc/artifacts/ -run 'TestDiff_ByteIdentity_InsertVsCOWVsRebuild|TestFinding2_RecomputeFlood_1432|TestFinding4_EarlyRootAfterRestart_1432' -v -count=1 | grep -E 'RESULT|PASS|FAIL|ok |---'
+      - name: 4a. PROFILE deferred+parallel+COW (prod defaults)
+        env: {SMST_PROF_N: '300000', SMST_DEFERRED_HASH: '1', SMST_PARALLEL_HASH: '1', SMST_COW: '1'}
+        run: go test ./poc/artifacts/ -run 'TestSMSTBuildProfile|TestSMSTStoreFlush30Profile' -v -count=1 | grep -iE 'insert|getroot|ingest|total|snap|RESULT|PASS|FAIL|ok ' || true
+      - name: 4b. PROFILE deferred SERIAL
+        env: {SMST_PROF_N: '300000', SMST_DEFERRED_HASH: '1', SMST_PARALLEL_HASH: '0', SMST_COW: '1'}
+        run: go test ./poc/artifacts/ -run 'TestSMSTBuildProfile|TestSMSTStoreFlush30Profile' -v -count=1 | grep -iE 'insert|getroot|ingest|total|snap|RESULT|PASS|FAIL|ok ' || true
+      - name: 4c. PROFILE eager (v0.2.14 baseline)
+        env: {SMST_PROF_N: '300000', SMST_DEFERRED_HASH: '0', SMST_PARALLEL_HASH: '0', SMST_COW: '1'}
+        run: go test ./poc/artifacts/ -run 'TestSMSTBuildProfile|TestSMSTStoreFlush30Profile' -v -count=1 | grep -iE 'insert|getroot|ingest|total|snap|RESULT|PASS|FAIL|ok ' || true
