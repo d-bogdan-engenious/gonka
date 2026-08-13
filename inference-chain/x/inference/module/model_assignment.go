@@ -356,6 +356,82 @@ func sumLiveRootTotalWeight(rootData types.EpochGroupData, liveRootSet map[strin
 	return total
 }
 
+// validatedModelNodes rebuilds the model -> nodes map from the participant's
+// parallel Models[i] / MlNodes[i] arrays as produced by PoC validation,
+// preserved-node carryover, or epoch fallback. This binding is the only source
+// of model identity for seating; the hardware inventory may later exclude a
+// node but never chooses or extends its model.
+// Nodes with an empty NodeId (legacy placeholders) are dropped: they could
+// never match a hardware LocalId anyway.
+func validatedModelNodes(p *types.ActiveParticipant) map[string][]*types.MLNodeInfo {
+	validated := make(map[string][]*types.MLNodeInfo, len(p.Models))
+	for i, modelId := range p.Models {
+		if modelId == "" || i >= len(p.MlNodes) || p.MlNodes[i] == nil {
+			continue
+		}
+		for _, node := range p.MlNodes[i].MlNodes {
+			if node == nil || node.NodeId == "" {
+				continue
+			}
+			validated[modelId] = append(validated[modelId], node)
+		}
+	}
+	return validated
+}
+
+type validatedNodeClaim struct {
+	modelId string
+	node    *types.MLNodeInfo
+}
+
+// resolveNodeOwnerModel enforces the single-assignment rule: one NodeId seats
+// in exactly one validated model bucket, matching the dedup behavior that
+// downstream weight consumers rely on. When the same node carries validated
+// weight under several models, the highest-preference claim wins (PocWeight,
+// then Throughput, then TimeslotAllocation -- same ordering as
+// dedupMLNodesById); on a full tie the lexicographically smallest model id
+// wins, since iteration is over sorted model ids and replacement requires a
+// strictly greater preference. Losing claims are dropped, never merged.
+// The second return value lists node ids claimed by more than one model.
+func resolveNodeOwnerModel(validated map[string][]*types.MLNodeInfo) (map[string]validatedNodeClaim, []string) {
+	owner := make(map[string]validatedNodeClaim)
+	contested := make(map[string]bool)
+
+	for _, modelId := range sortedKeys(validated) {
+		for _, node := range validated[modelId] {
+			current, seen := owner[node.NodeId]
+			if !seen {
+				owner[node.NodeId] = validatedNodeClaim{modelId: modelId, node: node}
+				continue
+			}
+			if current.modelId != modelId {
+				contested[node.NodeId] = true
+			}
+			if compareMLNodePreference(node, current.node) > 0 {
+				owner[node.NodeId] = validatedNodeClaim{modelId: modelId, node: node}
+			}
+		}
+	}
+
+	return owner, sortedKeys(contested)
+}
+
+// setModelsForParticipants seats each participant's ML nodes into per-model
+// buckets for the upcoming epoch.
+//
+// Invariant: raw PocWeight keeps the ModelID that PoC validation (or preserved
+// carry / epoch fallback) approved. The self-reported hardware inventory
+// (HardwareNode.Models) acts only as a filter:
+//   - node validated for M, hardware still lists M    -> seated in M
+//   - node validated for M, hardware dropped M        -> node dropped, never migrated
+//   - hardware lists K with no validated weight for K -> no bucket created for K
+//   - no HardwareNodes record at all                  -> validated assignments kept
+//     unchanged (genesis bootstrap)
+//   - node id absent from the hardware inventory      -> dropped before any
+//     weight consumer
+//
+// Preserved-carry participants flow through this same code path, so the same
+// rules apply to them.
 func (ma *ModelAssigner) setModelsForParticipants(ctx context.Context, participants []*types.ActiveParticipant, upcomingEpoch types.Epoch) {
 	// TODO: We may need to populate throughput in MLNodeInfo using the model's ThroughputPerNonce
 	// This would ensure consistent throughput calculations based on governance model parameters
@@ -391,75 +467,61 @@ func (ma *ModelAssigner) setModelsForParticipants(ctx context.Context, participa
 			continue
 		}
 
-		var originalMLNodes []*types.MLNodeInfo
-		for _, modelNodes := range p.MlNodes {
-			if modelNodes != nil {
-				originalMLNodes = append(originalMLNodes, modelNodes.MlNodes...)
-			}
-		}
-		ma.LogInfo("Original MLNodes", types.Allocation, "flow_context", FlowContext, "step", "pre_legacy_distribution", "participant_index", p.Index, "ml_nodes", originalMLNodes)
+		validated := validatedModelNodes(p)
+		ma.LogInfo("Validated model bindings before hardware filter", types.Allocation, "flow_context", FlowContext, "step", "pre_hardware_filter", "participant_index", p.Index, "validated_models", sortedKeys(validated))
 
-		if len(originalMLNodes) > 0 {
-			dedupedNodes, dedupStats := dedupMLNodesById(originalMLNodes)
-			ma.logMLNodeDedupStats(
-				"Duplicate ML nodes detected before participant assignment",
-				dedupStats,
-				"flow_context", FlowContext,
-				"step", "dedup_participant_nodes",
-				"participant_index", p.Index,
-			)
-			originalMLNodes = dedupedNodes
+		owner, contested := resolveNodeOwnerModel(validated)
+		if len(contested) > 0 {
+			ma.LogWarn("ML node holds validated weight under multiple models, keeping highest-preference claim", types.Allocation,
+				"flow_context", FlowContext, "step", "contested_nodes",
+				"participant_index", p.Index, "node_ids", contested)
 		}
-
-		for _, mlNode := range originalMLNodes {
-			mlNode.TimeslotAllocation = []bool{true, false} // [PRE_POC_SLOT, POC_SLOT]
-		}
-		ma.LogInfo("Initialized all ML nodes to PRE_POC_SLOT=true, POC_SLOT=false", types.Allocation, "flow_context", FlowContext, "step", "init_slots", "participant_index", p.Index)
-
-		assignedMLNodes := make(map[string]bool)
-		var supportedModels []string
-		var newMLNodeArrays []*types.ModelMLNodes
 
 		supportedModelsByNode := supportedModelsByNode(hardwareNodes, governanceModels)
 		for _, nodeId := range sortedKeys(supportedModelsByNode) {
-			supportedModels := supportedModelsByNode[nodeId]
-			ma.LogInfo("Supported models by node", types.Allocation, "flow_context", FlowContext, "step", "supported_models_by_node", "node_id", nodeId, "supported_models", supportedModels)
+			ma.LogInfo("Supported models by node", types.Allocation, "flow_context", FlowContext, "step", "supported_models_by_node", "node_id", nodeId, "supported_models", supportedModelsByNode[nodeId])
 		}
 
-		// For each governance model, pick the available MLNodes that have the model as first supported model
+		// Hardware acts as a filter only: a node stays in its validated model bucket
+		// iff the current inventory still declares that model. It is never moved to
+		// another bucket, and buckets are never created from hardware claims alone.
+		keptByModel := make(map[string][]*types.MLNodeInfo, len(validated))
+		var droppedNodes []string
+		for _, nodeId := range sortedKeys(owner) {
+			claim := owner[nodeId]
+			if !slices.Contains(supportedModelsByNode[nodeId], claim.modelId) {
+				droppedNodes = append(droppedNodes, nodeId+"@"+claim.modelId)
+				ma.LogWarn("Dropping validated ML node: hardware inventory does not declare its validated model", types.Allocation,
+					"flow_context", FlowContext, "step", "hardware_filter_drop",
+					"participant_index", p.Index, "node_id", nodeId,
+					"validated_model", claim.modelId, "poc_weight", claim.node.PocWeight,
+					"declared_models", supportedModelsByNode[nodeId])
+				continue
+			}
+			claim.node.TimeslotAllocation = []bool{true, false} // [PRE_POC_SLOT, POC_SLOT]
+			keptByModel[claim.modelId] = append(keptByModel[claim.modelId], claim.node)
+		}
+
+		// Rebuild parallel arrays in governance model order for determinism.
+		var supportedModels []string
+		var newMLNodeArrays []*types.ModelMLNodes
 		for _, model := range governanceModels {
-			ma.LogInfo("Attempting to assign ML node for model", types.Allocation, "flow_context", FlowContext, "step", "model_assignment_loop", "participant_index", p.Index, "model_id", model.Id)
-			var modelMLNodes []*types.MLNodeInfo
-
-			for _, mlNode := range originalMLNodes {
-				if assignedMLNodes[mlNode.NodeId] {
-					ma.LogInfo("Skipping already assigned ML node", types.Allocation, "flow_context", FlowContext, "step", "node_already_assigned", "participant_index", p.Index, "model_id", model.Id, "node_id", mlNode.NodeId)
-					continue
-				}
-
-				if slices.Contains(supportedModelsByNode[mlNode.NodeId], model.Id) {
-					ma.LogInfo("Found supporting and unassigned ML node for model", types.Allocation, "flow_context", FlowContext, "step", "assign_node_to_model", "participant_index", p.Index, "model_id", model.Id, "node_id", mlNode.NodeId)
-					modelMLNodes = append(modelMLNodes, mlNode)
-					assignedMLNodes[mlNode.NodeId] = true
-				}
+			modelMLNodes := keptByModel[model.Id]
+			if len(modelMLNodes) == 0 {
+				ma.LogInfo("No validated ML nodes for this model", types.Allocation, "flow_context", FlowContext, "step", "no_validated_nodes", "participant_index", p.Index, "model_id", model.Id)
+				continue
 			}
-
-			if len(modelMLNodes) > 0 {
-				supportedModels = append(supportedModels, model.Id)
-				newMLNodeArrays = append(newMLNodeArrays, &types.ModelMLNodes{MlNodes: modelMLNodes})
-				ma.LogInfo("Assigned ML nodes to model", types.Allocation, "flow_context", FlowContext, "step", "model_assignment_complete", "participant_index", p.Index, "model_id", model.Id, "assigned_nodes", modelMLNodes)
-			} else {
-				ma.LogInfo("No available ML nodes support this model", types.Allocation, "flow_context", FlowContext, "step", "no_supporting_nodes", "participant_index", p.Index, "model_id", model.Id)
-			}
+			supportedModels = append(supportedModels, model.Id)
+			newMLNodeArrays = append(newMLNodeArrays, &types.ModelMLNodes{MlNodes: modelMLNodes})
+			ma.LogInfo("Assigned ML nodes to model", types.Allocation, "flow_context", FlowContext, "step", "model_assignment_complete", "participant_index", p.Index, "model_id", model.Id, "assigned_nodes", modelMLNodes)
 		}
 
-		var unassignedMLNodes []*types.MLNodeInfo
-		for _, mlNode := range originalMLNodes {
-			if !assignedMLNodes[mlNode.NodeId] {
-				unassignedMLNodes = append(unassignedMLNodes, mlNode)
-			}
+		if len(droppedNodes) > 0 {
+			ma.LogWarn("Participant lost validated ML nodes to the hardware filter", types.Allocation,
+				"flow_context", FlowContext, "step", "hardware_filter_summary",
+				"participant_index", p.Index, "dropped", droppedNodes,
+				"remaining_models", supportedModels)
 		}
-		ma.LogInfo("Unassigned MLNodes", types.Allocation, "flow_context", FlowContext, "step", "unassigned_nodes", "participant_index", p.Index, "unassigned_nodes", unassignedMLNodes)
 
 		p.MlNodes = newMLNodeArrays
 		p.Models = supportedModels

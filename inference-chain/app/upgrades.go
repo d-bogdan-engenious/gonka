@@ -73,6 +73,9 @@ func (app *App) setupUpgradeHandlers() {
 	app.setTrackedUpgradeHandler(v0_2_14.UpgradeName, v0_2_14.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.GenesistransferKeeper, app.MintKeeper))
 	app.setTrackedUpgradeHandler(v0_2_15.UpgradeName, v0_2_15.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.AuthzKeeper))
 	app.setTrackedUpgradeHandler(v0_2_16.UpgradeName, v0_2_16.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	// GON-466 test upgrade: no state migration, swaps to the provenance-preserving
+	// model_assignment binary. Empty handler = capability fix + RunMigrations only.
+	app.setTrackedUpgradeHandler("v0.2.16-gon466", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
 }
 
 func (app *App) registerMigrations() {
