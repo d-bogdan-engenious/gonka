@@ -9,5 +9,5 @@ import (
 // TestUpgradeName pins the future on-chain proposal name. The governance
 // proposal and UpgradeName must stay identical or the handler will not run.
 func TestUpgradeName(t *testing.T) {
-	require.Equal(t, "v0.2.18", UpgradeName)
+	require.Equal(t, "v0.2.17-decode-simplify", UpgradeName)
 }
