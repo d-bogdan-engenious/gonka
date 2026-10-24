@@ -164,6 +164,15 @@ func migratePocSchemeBlocks(ctx context.Context, k keeper.Keeper) error {
 		if model == nil {
 			return fmt.Errorf("poc scheme migration: models contains a nil entry")
 		}
+		// Idempotency guard: a model that already carries scheme blocks was
+		// migrated by an earlier decode cutover (a chain already running DECODE,
+		// e.g. gonka testnet-3). Skip it so re-applying this handler on an
+		// already-migrated chain is a no-op instead of tripping the SeqLen<=0
+		// check below (which would error and halt the chain at the upgrade height).
+		// A genuinely unmigrated model has empty Schemes and is still validated.
+		if len(model.Schemes) > 0 {
+			continue
+		}
 		if model.SeqLen <= 0 {
 			return fmt.Errorf("model %q has invalid prefill seq_len %d", model.ModelId, model.SeqLen)
 		}

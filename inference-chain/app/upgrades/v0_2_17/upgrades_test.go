@@ -12,7 +12,7 @@ import (
 )
 
 func TestUpgradeName(t *testing.T) {
-	require.Equal(t, "v0.2.17", UpgradeName)
+	require.Equal(t, "v0.2.17-safeguards-qa93", UpgradeName)
 }
 
 func TestEnableWasmFeeGroup_AddsWasmBesideExistingGroups(t *testing.T) {
@@ -199,6 +199,55 @@ func TestMigratePocSchemeBlocksRejectsMissingRecipe(t *testing.T) {
 	got, getErr := k.GetParams(ctx)
 	require.NoError(t, getErr)
 	require.Empty(t, got.PocParams.Models[0].Schemes)
+}
+
+// TestMigratePocSchemeBlocksIdempotentOnAlreadyMigrated verifies the handler is
+// a no-op when models already carry scheme blocks — the state of a chain already
+// running DECODE (e.g. gonka testnet-3 after the decode-simplify cutover, where
+// model.SeqLen is 0 and Schemes is populated). Without the idempotency guard the
+// SeqLen<=0 check would error and halt the chain when this upgrade is applied on
+// top of an already-migrated state.
+func TestMigratePocSchemeBlocksIdempotentOnAlreadyMigrated(t *testing.T) {
+	k, ctx, _ := keepertest.InferenceKeeperReturningMocks(t)
+	params, err := k.GetParams(ctx)
+	require.NoError(t, err)
+	coefficient := &types.DynamicCoefficientModelConfig{
+		CoeffMin:           &types.Decimal{Value: 15, Exponent: -1},
+		CoeffMax:           &types.Decimal{Value: 15, Exponent: -1},
+		RelativeDifficulty: &types.Decimal{Value: 1, Exponent: 0},
+		TargetShareBps:     10000,
+	}
+	params.PocParams.DynamicCoefficientParams = &types.DynamicCoefficientParams{
+		TargetZoneBps:     500,
+		StepMin:           types.DecimalFromFloat(0.005),
+		StepMax:           types.DecimalFromFloat(0.05),
+		BootstrapStepMax:  types.DecimalFromFloat(0.25),
+		BootstrapShareBps: 100,
+	}
+	params.PocParams.Models = []*types.PoCModelConfig{{
+		ModelId:            "model-a",
+		SeqLen:             128,
+		StatTest:           &types.PoCStatTestParams{DistThreshold: types.DecimalFromFloat(0.41)},
+		DynamicCoefficient: coefficient,
+	}}
+	require.NoError(t, k.SetParams(ctx, params))
+
+	// First pass migrates a fresh v0.2.16-shape model and produces valid params.
+	require.NoError(t, migratePocSchemeBlocks(ctx, k))
+	first, err := k.GetParams(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), first.PocParams.Models[0].SeqLen)
+	require.Len(t, first.PocParams.Models[0].Schemes, 2)
+
+	// Second pass on the already-migrated state (SeqLen=0, Schemes populated) must
+	// be a no-op: no error (no chain halt) and the scheme blocks unchanged. This is
+	// the gonka testnet-3 case where the chain already ran DECODE before v0.2.17.
+	require.NoError(t, migratePocSchemeBlocks(ctx, k))
+	second, err := k.GetParams(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), second.PocParams.Models[0].SeqLen)
+	require.Len(t, second.PocParams.Models[0].Schemes, 2)
+	require.Equal(t, first.PocParams.Models[0].Schemes, second.PocParams.Models[0].Schemes)
 }
 
 func TestPostV016ParamsRoundTripModelCoefficient(t *testing.T) {
