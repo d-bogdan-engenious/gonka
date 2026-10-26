@@ -12,7 +12,7 @@ import (
 )
 
 func TestUpgradeName(t *testing.T) {
-	require.Equal(t, "v0.2.17", UpgradeName)
+	require.Equal(t, "v0.2.17-qa98100", UpgradeName)
 }
 
 func TestEnableWasmFeeGroup_AddsWasmBesideExistingGroups(t *testing.T) {
