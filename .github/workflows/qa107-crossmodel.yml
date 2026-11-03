@@ -1,0 +1,74 @@
+name: QA-107 Cross-Model Porosity
+
+# Runs ONLY CrossModelPorosityTests (PR #2196 per-model node numbering),
+# self-contained in one job so it does not trigger the full integration matrix.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-model-porosity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up disk space on runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af --volumes || true
+          sudo apt-get clean || true
+          df -h
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v4
+        with:
+          version: 'latest'
+
+      - name: Install Make
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '19'
+
+      - name: Set up Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Build Docker images
+        env:
+          GENESIS_OVERRIDES_FILE: "inference-chain/test_genesis_overrides.json"
+        run: |
+          sudo make build-docker
+          sudo docker images | head -20
+
+      - name: Start test chain
+        working-directory: local-test-net
+        run: sudo ./launch.sh
+
+      - name: Run CrossModelPorosityTests
+        run: sudo make run-tests TESTS=CrossModelPorosityTests
+
+      - name: Upload testermint logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa107-testermint-logs
+          path: testermint/logs
+          retention-days: 3
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa107-test-results
+          path: testermint/build/test-results/**/*.xml
+          retention-days: 3
