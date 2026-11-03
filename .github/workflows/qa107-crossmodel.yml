@@ -4,6 +4,9 @@ name: QA-107 Cross-Model Porosity
 # self-contained in one job so it does not trigger the full integration matrix.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - qa107-crossmodel-porosity
 
 permissions:
   contents: read
