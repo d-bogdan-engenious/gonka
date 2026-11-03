@@ -28,7 +28,7 @@ jobs:
       - name: Set up Docker
         uses: docker/setup-docker-action@v4
         with:
-          version: 'latest'
+          version: '28.5.2'
 
       - name: Install Make
         run: |
