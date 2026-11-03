@@ -174,8 +174,12 @@ class WebhookService(private val responseService: ResponseService) {
             val blockHash = jsonNode.get("block_hash")?.asText()
             val blockHeight = jsonNode.get("block_height")?.asInt()
             val nodeId = jsonNode.get("node_id")?.asInt() ?: 0
+            val nodeCount = jsonNode.get("node_count")?.asInt() ?: 1
 
-            logger.info("Processing PoC v2 generate webhook - URL: $url, PublicKey: $publicKey, BlockHeight: $blockHeight, NodeId: $nodeId")
+            logger.info("Processing PoC v2 generate webhook - URL: $url, PublicKey: $publicKey, BlockHeight: $blockHeight, NodeId: $nodeId, NodeCount: $nodeCount")
+
+            // QA-107 / PR #2196: record the node_count the DAPI assigned (per-model vs global).
+            responseService.recordPocNodeCount(nodeCount)
 
             if (url != null && publicKey != null && blockHash != null && blockHeight != null) {
                 val webhookUrl = generateWebhookUrl(url)
