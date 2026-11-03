@@ -289,6 +289,25 @@ fun Route.responseRoutes(responseService: ResponseService, webhookService: Webho
         }
     }
 
+    // GET /api/v1/responses/poc/node-counts - distinct node_count values the DAPI
+    // sent on PoC generate requests (QA-107 / PR #2196 per-model numbering check)
+    get("/api/v1/responses/poc/node-counts") {
+        try {
+            call.respond(
+                HttpStatusCode.OK,
+                mapOf(
+                    "status" to "success",
+                    "node_counts" to responseService.getPocNodeCounts().sorted()
+                )
+            )
+        } catch (e: Exception) {
+            call.respond(
+                HttpStatusCode.InternalServerError,
+                mapOf("status" to "error", "message" to "Failed to get poc node counts: ${e.message}")
+            )
+        }
+    }
+
     // GET /api/v1/responses/last-inference-request - Gets the last inference request
     get("/api/v1/responses/last-inference-request") {
         try {

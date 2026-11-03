@@ -26,6 +26,25 @@ data class SetInferenceResponseRequest(
  */
 class MockServerInferenceMock(private val baseUrl: String, val name: String) : IInferenceMock {
 
+    // QA-107 / PR #2196: distinct node_count values the DAPI sent on PoC generate.
+    override fun getPocNodeCounts(): List<Int> {
+        try {
+            val (_, _, result) = Fuel.get("$baseUrl/api/v1/responses/poc/node-counts")
+                .responseString()
+            val (data, error) = result
+            if (error != null) {
+                Logger.error("Failed to get poc node counts: ${error.message}")
+                return emptyList()
+            }
+            val responseJson = cosmosJson.fromJson(data, Map::class.java)
+            val counts = responseJson["node_counts"] as? List<*> ?: return emptyList()
+            return counts.mapNotNull { (it as? Number)?.toInt() }
+        } catch (e: Exception) {
+            Logger.error("Error getting poc node counts: ${e.message}")
+            return emptyList()
+        }
+    }
+
     override fun getLastInferenceRequest(): InferenceRequestPayload? {
         try {
             val (_, response, result) = Fuel.get("$baseUrl/api/v1/responses/last-inference-request")

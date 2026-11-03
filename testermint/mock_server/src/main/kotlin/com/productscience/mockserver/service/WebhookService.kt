@@ -78,8 +78,9 @@ class WebhookService(private val responseService: ResponseService) {
             val blockHash = jsonNode.get("block_hash")?.asText()
             val blockHeight = jsonNode.get("block_height")?.asInt()
             val nodeNumber = jsonNode.get("node_id")?.asInt() ?: 1
+            val nodeCount = jsonNode.get("node_count")?.asInt() ?: 1
 
-            logger.info("Processing generate POC webhook - URL: $url, PublicKey: $publicKey, BlockHeight: $blockHeight, NodeNumber: $nodeNumber")
+            logger.info("Processing generate POC webhook - URL: $url, PublicKey: $publicKey, BlockHeight: $blockHeight, NodeNumber: $nodeNumber, NodeCount: $nodeCount")
 
             if (url != null && publicKey != null && blockHash != null && blockHeight != null) {
                 val webhookUrl = "$url/generated"
@@ -88,6 +89,11 @@ class WebhookService(private val responseService: ResponseService) {
                 val weight = responseService.getPocResponseWeight(hostName) ?: 10L
 
                 logger.info("Using weight for POC generation: $weight")
+
+                // Record the node_count the DAPI assigned for this PoC generate
+                // request (QA-107 / PR #2196): with the fix the count is per-model,
+                // without it the count is the participant's global node total.
+                responseService.recordPocNodeCount(nodeCount)
 
                 // Use ResponseService to generate the webhook body
                 val webhookBody = responseService.generatePocResponseBody(

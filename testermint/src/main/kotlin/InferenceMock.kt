@@ -47,6 +47,8 @@ interface IInferenceMock {
     fun emitPocV2Batch(hostName: String? = null) {}
     fun setLatestPocNonce(nonce: Long) {}
     fun getLastInferenceRequest(): InferenceRequestPayload?
+    // QA-107 / PR #2196: distinct node_count values the DAPI sent on PoC generate.
+    fun getPocNodeCounts(): List<Int> = emptyList()
     fun hasRequestsToVersionedEndpoint(segment: String): Boolean
     fun resetMocks()
 }

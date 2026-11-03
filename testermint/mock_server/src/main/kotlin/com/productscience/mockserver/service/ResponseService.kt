@@ -60,13 +60,25 @@ class ResponseService {
     // Store for the last inference request
     private val lastInferenceRequest = AtomicReference<String?>(null)
 
+    // QA-107 / PR #2196: distinct node_count values the DAPI sent on PoC generate.
+    private val pocNodeCounts = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
+
     // No string keys anymore; use strongly typed value classes for the key parts.
 
     fun clearOverrides() {
         inferenceResponses.clear()
         pocResponses.clear()
         lastInferenceRequest.set(null)
+        pocNodeCounts.clear()
     }
+
+    /** Records the node_count the DAPI assigned for a PoC generate request. */
+    fun recordPocNodeCount(nodeCount: Int) {
+        pocNodeCounts.add(nodeCount)
+    }
+
+    /** Returns the distinct node_count values observed on PoC generate requests. */
+    fun getPocNodeCounts(): Set<Int> = synchronized(pocNodeCounts) { pocNodeCounts.toSet() }
 
     /**
      * Sets the response for the inference endpoint.
