@@ -6,6 +6,9 @@ name: bughunt (V6)
 #                    the gateway neither escalates nor fails closed (stalls to InferenceTimeout).
 #   purge    (V6-B): a REAL Postgres (testcontainers); PurgeEpoch doesn't record the deletion,
 #                    so the purged epoch's ledger resurrects from Postgres on reload.
+#   repair   (V6-C): two REAL Host instances exchange a real repair request/response; a multi-slot
+#                    responder attributes the courtesy ack to its PrimarySlot, not the probed slot,
+#                    so the probed (non-primary) slot never repairs.
 
 on:
   push:
@@ -60,4 +63,27 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bughunt-purge-proof
+          path: /tmp/proof/
+
+  repair:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./devshard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.9'
+          cache-dependency-path: devshard/go.sum
+      - name: Run V6-C two-Host repair-exchange test (raw log teed for proof)
+        run: |
+          mkdir -p /tmp/proof
+          set -o pipefail
+          go test ./host/ -run '^TestBugHunt_V6_RepairExchange_NonPrimarySlotNeverRepairs$' -count=1 -v 2>&1 | tee /tmp/proof/repair.log
+      - name: Upload repair raw proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bughunt-repair-proof
           path: /tmp/proof/
