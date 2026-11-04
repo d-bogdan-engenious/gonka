@@ -50,29 +50,29 @@ jobs:
       - name: Pull busybox test image
         run: docker pull busybox:1.36
 
-      - name: FIX run (#2193 updater) — expect PASS
+      - name: QA suite (#2193 updater) — happy + adversarial, expect PASS
         working-directory: deploy/join
         run: |
-          echo "=== Running rollback test against the #2193 updater (expect PASS) ==="
-          python3 updater-rollback_test.py -v
+          echo "=== Running the QA-authored suite (happy-path + adversarial) against #2193 (expect PASS) ==="
+          python3 qa108_rollback_suite.py -v -k qa
 
-      - name: Adversarial / negative tests (#2193 updater) — expect PASS
-        working-directory: deploy/join
-        run: |
-          echo "=== Running adversarial dial-stdio + repeated-rollback tests (expect PASS) ==="
-          python3 updater-rollback-adversarial_test.py -v
-
-      - name: BUG run (pre-#2193 updater) — expect the test to FAIL (rollback broken)
+      - name: BUG run — QA happy-path against pre-#2193 updater (expect FAIL)
         working-directory: deploy/join
         run: |
           cp updater-container-state.py /tmp/fix-updater.py
           git show "${PREFIX_SHA}:deploy/join/updater-container-state.py" > updater-container-state.py
-          echo "=== Running the SAME test against the PRE-#2193 updater (rollback bug should reproduce → test FAILS) ==="
-          if python3 updater-rollback_test.py -v; then
-            echo "::error::UNEXPECTED: pre-#2193 test PASSED — the rollback bug did NOT reproduce on this Docker (fix may be unnecessary here, or env differs)"
+          echo "=== Running OUR QA suite against the PRE-#2193 updater (rollback bug should reproduce -> suite FAILS) ==="
+          if python3 qa108_rollback_suite.py -v -k qa; then
+            echo "::error::UNEXPECTED: QA suite PASSED on pre-#2193 — the rollback bug did NOT reproduce on this Docker"
             cp /tmp/fix-updater.py updater-container-state.py
             exit 1
           else
-            echo "EXPECTED: pre-#2193 test FAILED — the dial-stdio rollback bug reproduced; #2193 fixes it."
+            echo "EXPECTED: QA suite FAILED on pre-#2193 — our happy-path reproduces the dial-stdio rollback bug; #2193 fixes it."
           fi
           cp /tmp/fix-updater.py updater-container-state.py
+
+      - name: Upstream shipped suite (reference regression) — expect PASS
+        working-directory: deploy/join
+        run: |
+          echo "=== Also running the PR's own test as an upstream regression check ==="
+          python3 updater-rollback_test.py -v
