@@ -1,0 +1,42 @@
+name: bughunt roleonly (V6-A)
+
+# Runs ONLY the BUG V6-A full-stack citest (role-only first token stalls inference),
+# builds devshardd + the mock images, and uploads the raw test/compose logs as an
+# artifact. A RED job here = the bug reproduced (the gateway did not escalate / fail
+# closed within the bound); the artifact carries the raw proof either way.
+
+on:
+  push:
+    branches:
+      - dbogdan/v6-bughunt-roleonly-citest
+  workflow_dispatch: {}
+
+jobs:
+  roleonly:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./devshard/testenv
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.9'
+          cache-dependency-path: devshard/go.sum
+
+      - name: Build linux devshardd
+        run: make build-devshardd
+
+      - name: Run citest-bughunt-roleonly (raw log teed for proof)
+        run: |
+          mkdir -p /tmp/proof
+          set -o pipefail
+          make citest-bughunt-roleonly 2>&1 | tee /tmp/proof/citest-bughunt-roleonly.log
+
+      - name: Upload raw proof logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bughunt-roleonly-proof
+          path: /tmp/proof/

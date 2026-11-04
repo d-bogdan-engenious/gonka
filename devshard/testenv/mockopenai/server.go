@@ -382,6 +382,13 @@ func (s *Server) streamCompletion(c echo.Context, req ChatRequest, text string, 
 		}
 		return nil
 	}
+	if f.RoleOnlyThenHang {
+		// BUG V6-A: emit one role-only delta (sets the gateway first-token clock; contentChunks
+		// stays 0), flush, then go silent until the request context is cancelled.
+		_ = writeChunk(map[string]any{"role": "assistant"}, nil, nil)
+		<-c.Request().Context().Done()
+		return c.Request().Context().Err()
+	}
 	first := true
 	paused := false
 	for i, r := range tokens {

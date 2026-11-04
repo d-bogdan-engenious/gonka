@@ -85,7 +85,7 @@ dev-logs: ## Follow dev overlay logs.
 .PHONY: citest-images citest-stack citest-baseline-smoke citest-stack-build list-citest-targets
 .PHONY: citest-validation-lease-race citest-escrow-longpoll citest-timeout-evidence
 .PHONY: citest-versiond-rolling-update citest-versiond-host-evacuation citest-adversarial citest-payload-withholding
-.PHONY: citest-observability citest-dapi-correlation citest-ml-nodes citest-grpc-transport citest-force-upstream-streaming citest-height-sync citest-height-sync-dapi-compat citest-host-ping citest-retired-session-http citest-peerrpc-chat citest-peerrpc-ha-session citest-proxy-h2-idle citest-peerrpc-overlay citest-peerrpc-parity citest-peerrpc-limits citest-mixed-fleet citest-peerrpc-cross-version-compat test-gateway-smoke
+.PHONY: citest-observability citest-dapi-correlation citest-ml-nodes citest-grpc-transport citest-force-upstream-streaming citest-height-sync citest-height-sync-dapi-compat citest-host-ping citest-retired-session-http citest-peerrpc-chat citest-peerrpc-ha-session citest-proxy-h2-idle citest-peerrpc-overlay citest-peerrpc-parity citest-peerrpc-limits citest-mixed-fleet citest-peerrpc-cross-version-compat test-gateway-smoke citest-bughunt-roleonly
 .PHONY: build-baseline-infra fetch-limits-pin build-limits-pin
 
 # citest-images and citest-stack-build are build/helper rules, not standalone
@@ -120,6 +120,10 @@ PEER_RPC_ENDPOINTS := signatures,mempool,diffs,gossip,repair,height-sync,verify-
 # is the client default. Pin targets must not inherit this.
 CITEST_RPC_ENV := DEVSHARD_RPC_ENDPOINTS=$(PEER_RPC_ENDPOINTS) DEVSHARD_RPC_GRPC=true
 CITEST_RPC_RUN := env -u TESTENV_PROXY_OVERLAY -u DEVSHARD_RPC_H2_UPGRADE $(CITEST_RPC_ENV) TESTENV_CITEST=1 go test -tags=testenvci ./citest/
+
+citest-bughunt-roleonly: citest-images ## BUG V6-A: role-only first token stalls inference (no escalation / no failover).
+	$(MAKE) build-devshardd
+	$(CITEST_RPC_RUN) -run '^TestBugHunt_V6_RoleOnlyFirstTokenStalls_FullStack$$' -count=1 -v -timeout 30m
 
 build-baseline-infra: ## Build versiond + versiond-router from branch devshard-0.2.15-v5.
 	./scripts/build-baseline-infra.sh

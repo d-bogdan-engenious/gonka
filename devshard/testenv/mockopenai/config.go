@@ -62,6 +62,10 @@ type FaultConfig struct {
 	// error envelope and [DONE], matching vLLM EngineCore failures. Distinct
 	// from HTTPStatus >= 400, which is a JSON 5xx with no Finish.
 	StreamErrorEnvelope bool
+	// RoleOnlyThenHang emits exactly one role-only SSE delta (no content), flushes it, then
+	// blocks until the request context is cancelled — a host that sets the gateway's first-token
+	// clock with a content-less chunk and then goes silent (BUG V6-A repro).
+	RoleOnlyThenHang bool
 }
 
 // ShouldFail deterministically selects requests for a configured failure
@@ -91,6 +95,7 @@ type FaultPatch struct {
 	PauseStream         *bool   `json:"pause_stream,omitempty"`
 	StreamErrorEnvelope *bool   `json:"stream_error_envelope,omitempty"`
 	Hang                *bool   `json:"hang,omitempty"`
+	RoleOnlyThenHang    *bool   `json:"role_only_then_hang,omitempty"`
 }
 
 func (p FaultPatch) apply(dst *FaultConfig) {
@@ -123,6 +128,9 @@ func (p FaultPatch) apply(dst *FaultConfig) {
 	}
 	if p.Hang != nil {
 		dst.Hang = *p.Hang
+	}
+	if p.RoleOnlyThenHang != nil {
+		dst.RoleOnlyThenHang = *p.RoleOnlyThenHang
 	}
 }
 
