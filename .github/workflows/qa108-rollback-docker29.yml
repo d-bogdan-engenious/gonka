@@ -1,0 +1,72 @@
+name: QA-108 Rollback on Docker 29
+
+# QA-108 / PR #2193: the join updater's rollback (recreate the previous container
+# via `docker system dial-stdio`) was cancelled on Docker 29 + containerd image
+# store because stdin was half-closed before the daemon answered the create.
+# This workflow reproduces the bug (pre-#2193 updater → rollback fails → test
+# FAILS) and proves the fix (#2193 updater → test PASSES), on Docker 29 with the
+# containerd image store enabled.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa108-rollback-docker29
+
+permissions:
+  contents: read
+
+env:
+  PREFIX_SHA: "39b9bcc0a7453aada5417516dfc9e141504342e5"  # updater-container-state.py before #2193
+
+jobs:
+  rollback-docker29:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo apt-get clean || true
+
+      - name: Checkout code (full history for the pre-fix file)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker 29 + containerd image store
+        uses: docker/setup-docker-action@v4
+        with:
+          version: '29.0.0'
+          daemon-config: |
+            {
+              "features": { "containerd-snapshotter": true }
+            }
+
+      - name: Show Docker version + image store driver
+        run: |
+          docker version
+          echo "--- info (expect containerd snapshotter / image store) ---"
+          docker info 2>/dev/null | grep -iE "server version|driver|containerd|snapshotter|storage" || true
+
+      - name: Pull busybox test image
+        run: docker pull busybox:1.36
+
+      - name: FIX run (#2193 updater) — expect PASS
+        working-directory: deploy/join
+        run: |
+          echo "=== Running rollback test against the #2193 updater (expect PASS) ==="
+          python3 updater-rollback_test.py -v
+
+      - name: BUG run (pre-#2193 updater) — expect the test to FAIL (rollback broken)
+        working-directory: deploy/join
+        run: |
+          cp updater-container-state.py /tmp/fix-updater.py
+          git show "${PREFIX_SHA}:deploy/join/updater-container-state.py" > updater-container-state.py
+          echo "=== Running the SAME test against the PRE-#2193 updater (rollback bug should reproduce → test FAILS) ==="
+          if python3 updater-rollback_test.py -v; then
+            echo "::error::UNEXPECTED: pre-#2193 test PASSED — the rollback bug did NOT reproduce on this Docker (fix may be unnecessary here, or env differs)"
+            cp /tmp/fix-updater.py updater-container-state.py
+            exit 1
+          else
+            echo "EXPECTED: pre-#2193 test FAILED — the dial-stdio rollback bug reproduced; #2193 fixes it."
+          fi
+          cp /tmp/fix-updater.py updater-container-state.py
