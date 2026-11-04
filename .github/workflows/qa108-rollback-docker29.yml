@@ -56,6 +56,12 @@ jobs:
           echo "=== Running rollback test against the #2193 updater (expect PASS) ==="
           python3 updater-rollback_test.py -v
 
+      - name: Adversarial / negative tests (#2193 updater) — expect PASS
+        working-directory: deploy/join
+        run: |
+          echo "=== Running adversarial dial-stdio + repeated-rollback tests (expect PASS) ==="
+          python3 updater-rollback-adversarial_test.py -v
+
       - name: BUG run (pre-#2193 updater) — expect the test to FAIL (rollback broken)
         working-directory: deploy/join
         run: |
