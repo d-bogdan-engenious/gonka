@@ -1,9 +1,11 @@
-name: bughunt roleonly (V6-A)
+name: bughunt (V6)
 
-# Runs ONLY the BUG V6-A full-stack citest (role-only first token stalls inference),
-# builds devshardd + the mock images, and uploads the raw test/compose logs as an
-# artifact. A RED job here = the bug reproduced (the gateway did not escalate / fail
-# closed within the bound); the artifact carries the raw proof either way.
+# Full-stack / real reproductions of the unreported v6 bugs, each uploading raw logs as an
+# artifact. A RED job = the bug reproduced. No local docker involved — all on GHA runners.
+#   roleonly (V6-A): full testenv stack; a host emits a role-only first token then hangs ->
+#                    the gateway neither escalates nor fails closed (stalls to InferenceTimeout).
+#   purge    (V6-B): a REAL Postgres (testcontainers); PurgeEpoch doesn't record the deletion,
+#                    so the purged epoch's ledger resurrects from Postgres on reload.
 
 on:
   push:
@@ -19,24 +21,43 @@ jobs:
         working-directory: ./devshard/testenv
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.9'
           cache-dependency-path: devshard/go.sum
-
       - name: Build linux devshardd
         run: make build-devshardd
-
       - name: Run citest-bughunt-roleonly (raw log teed for proof)
         run: |
           mkdir -p /tmp/proof
           set -o pipefail
-          make citest-bughunt-roleonly 2>&1 | tee /tmp/proof/citest-bughunt-roleonly.log
-
-      - name: Upload raw proof logs
+          make citest-bughunt-roleonly 2>&1 | tee /tmp/proof/roleonly.log
+      - name: Upload roleonly raw proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bughunt-roleonly-proof
+          path: /tmp/proof/
+
+  purge:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./devshard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.9'
+          cache-dependency-path: devshard/go.sum
+      - name: Run V6-B purge PG-testcontainers test (raw log teed for proof)
+        run: |
+          mkdir -p /tmp/proof
+          set -o pipefail
+          go test ./accounting/ -run '^TestBugHunt_V6_PurgeEpochResurrectsFromPostgresOnReload$' -count=1 -v 2>&1 | tee /tmp/proof/purge.log
+      - name: Upload purge raw proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bughunt-purge-proof
           path: /tmp/proof/
