@@ -50,10 +50,14 @@ jobs:
           echo "binary: $BIN size=$(stat -c%s "$BIN")"
           N2206=$(grep -a -c 'same-epoch PoC challenge target cannot submit a confirmation PoC commit' "$BIN" || true)
           NHANDLER=$(grep -a -c 'v0.2.17-2206' "$BIN" || true)
-          echo "n_2206_string=$N2206  n_handler_string=$NHANDLER"
-          test "$N2206" -ge 1 || { echo "::error::#2206 gate string MISSING in built inferenced"; exit 1; }
-          test "$NHANDLER" -ge 1 || { echo "::error::v0.2.17-2206 handler name MISSING in built inferenced"; exit 1; }
-          echo "OK: #2206 + v0.2.17-2206 handler both present"
+          NALPHA=$(grep -a -c 'v0.2.17-alpha' "$BIN" || true)
+          NSTRADDLE=$(grep -a -c 'v0.2.17-straddle' "$BIN" || true)
+          echo "n_2206=$N2206 n_2206handler=$NHANDLER n_alpha=$NALPHA n_straddle=$NSTRADDLE"
+          test "$N2206" -ge 1 || { echo "::error::#2206 gate string MISSING"; exit 1; }
+          test "$NHANDLER" -ge 1 || { echo "::error::v0.2.17-2206 handler MISSING"; exit 1; }
+          test "$NALPHA" -ge 1 || { echo "::error::v0.2.17-alpha handler MISSING"; exit 1; }
+          test "$NSTRADDLE" -ge 1 || { echo "::error::v0.2.17-straddle handler MISSING"; exit 1; }
+          echo "OK: #2206 + v0.2.17-2206 + v0.2.17-alpha + v0.2.17-straddle all present"
           rm -rf _x
 
       - name: Upload upgrade binaries

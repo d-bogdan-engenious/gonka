@@ -28,6 +28,7 @@ import (
 	"github.com/productscience/inference/app/upgrades/v0_2_7"
 	"github.com/productscience/inference/app/upgrades/v0_2_8"
 	"github.com/productscience/inference/app/upgrades/v0_2_9"
+	inferencekeeper "github.com/productscience/inference/x/inference/keeper"
 	inferencetypes "github.com/productscience/inference/x/inference/types"
 )
 
@@ -45,6 +46,34 @@ func CreateEmptyUpgradeHandler(
 		// the `InitGenesis` to panic.
 		if _, ok := vm["capability"]; !ok {
 			vm["capability"] = mm.Modules["capability"].(module.HasConsensusVersion).ConsensusVersion()
+		}
+		return mm.RunMigrations(ctx, configurator, vm)
+	}
+}
+
+// CreateSetAlphaUpgradeHandler sets confirmation_poc_params.alpha_threshold=0.01 in Go
+// (keeper store round-trip is proto-lossless, so decode scheme blocks are preserved) and
+// runs migrations. Needed because MsgUpdateParams cannot carry the per-model schemes field
+// on this chain, so alpha (required to open a PoC challenge) must be set via a handler.
+func CreateSetAlphaUpgradeHandler(
+	mm *module.Manager,
+	configurator module.Configurator,
+	k inferencekeeper.Keeper,
+) upgradetypes.UpgradeHandler {
+	return func(ctx context.Context, plan upgradetypes.Plan, vm module.VersionMap) (module.VersionMap, error) {
+		if _, ok := vm["capability"]; !ok {
+			vm["capability"] = mm.Modules["capability"].(module.HasConsensusVersion).ConsensusVersion()
+		}
+		params, err := k.GetParams(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if params.ConfirmationPocParams == nil {
+			params.ConfirmationPocParams = &inferencetypes.ConfirmationPoCParams{}
+		}
+		params.ConfirmationPocParams.AlphaThreshold = inferencetypes.DecimalFromFloat(0.01)
+		if err := k.SetParams(ctx, params); err != nil {
+			return nil, err
 		}
 		return mm.RunMigrations(ctx, configurator, vm)
 	}
@@ -80,6 +109,10 @@ func (app *App) setupUpgradeHandlers() {
 	// no state migration, so an empty passthrough handler (capability fix + idempotent RunMigrations)
 	// is the correct, safe handler. The name MUST match the gov proposal or the chain halts at height.
 	app.setTrackedUpgradeHandler("v0.2.17-2206", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
+	// QA GON-593 live: set CPoC alpha (handler, since MsgUpdateParams can't carry schemes),
+	// then a second empty "straddle" upgrade run while a long-running PoC challenge is OPEN.
+	app.setTrackedUpgradeHandler("v0.2.17-alpha", CreateSetAlphaUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	app.setTrackedUpgradeHandler("v0.2.17-straddle", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
 }
 
 func (app *App) registerMigrations() {
