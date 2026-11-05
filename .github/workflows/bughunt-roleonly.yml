@@ -87,3 +87,79 @@ jobs:
         with:
           name: bughunt-repair-proof
           path: /tmp/proof/
+
+  # --- Round 2 (fresh dimensions, known defects excluded) ---
+  #   selfvalidation (V6-D): a multi-slot executor validates its OWN challenged inference from a
+  #                          sibling slot -> real StateMachine ApplyDiff path marks it Validated.
+  #   turndegrade    (V6-E): one over-stated ack folded first prematurely degrades a turn a later
+  #                          honest quorum would complete -> real TurnTracker, order-dependent.
+  #   rotatororphan  (V6-F): a rotator settle failing after SetDevshardActive(false) leaves the
+  #                          escrow invisible to every recovery path -> real SQLite store.
+  selfvalidation:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./devshard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.9'
+          cache-dependency-path: devshard/go.sum
+      - name: Run V6-D executor self-validation test (raw log teed for proof)
+        run: |
+          mkdir -p /tmp/proof
+          set -o pipefail
+          go test ./state/ -run '^TestBugHunt_V6_ExecutorSelfValidatesViaSiblingSlot$' -count=1 -v 2>&1 | tee /tmp/proof/selfvalidation.log
+      - name: Upload selfvalidation raw proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bughunt-selfvalidation-proof
+          path: /tmp/proof/
+
+  turndegrade:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./devshard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.9'
+          cache-dependency-path: devshard/go.sum
+      - name: Run V6-E premature turn-degrade test (raw log teed for proof)
+        run: |
+          mkdir -p /tmp/proof
+          set -o pipefail
+          go test ./heightsync/ -run '^TestBugHunt_V6_OverstatedAckPrematurelyDegradesTurn$' -count=1 -v 2>&1 | tee /tmp/proof/turndegrade.log
+      - name: Upload turndegrade raw proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bughunt-turndegrade-proof
+          path: /tmp/proof/
+
+  rotatororphan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./devshard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.9'
+          cache-dependency-path: devshard/go.sum
+      - name: Run V6-F rotator-orphan test (raw log teed for proof)
+        run: |
+          mkdir -p /tmp/proof
+          set -o pipefail
+          go test ./cmd/devshardctl/ -run '^TestBugHunt_V6_RotatorSettleFailureOrphansEscrow$' -count=1 -v 2>&1 | tee /tmp/proof/rotatororphan.log
+      - name: Upload rotatororphan raw proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bughunt-rotatororphan-proof
+          path: /tmp/proof/
