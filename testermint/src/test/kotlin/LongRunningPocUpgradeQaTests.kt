@@ -94,14 +94,15 @@ class LongRunningPocUpgradeQaTests : TestermintTest() {
             "node did not come back with upgrade $upgradeHeight applied (chain halted or handler missing)"
         }
 
-        logSection("ASSERT: cosmovisor applied the upgrade and the chain did not halt")
+        logSection("ASSERT: chain advanced past the upgrade height (no halt)")
+        // Reaching upgradeHeight+2 IS the no-halt proof: a halted chain never produces these blocks.
+        val surviveHeight = upgradeHeight + 2
+        retryQuery { genesis.node.waitForMinimumBlock(surviveHeight, "post-upgrade blocks") }
         val resumedHeight = retryQuery { genesis.getCurrentBlockHeight() }
-        assertThat(resumedHeight).isGreaterThan(upgradeHeight)
+        assertThat(resumedHeight).isGreaterThanOrEqualTo(surviveHeight)
         Logger.info("chain resumed past upgrade: height=$resumedHeight (upgrade=$upgradeHeight)")
 
         logSection("ASSERT: the OPEN challenge survived the binary swap (queried at the post-upgrade height)")
-        val surviveHeight = upgradeHeight + 2
-        retryQuery { genesis.node.waitForMinimumBlock(surviveHeight, "post-upgrade survive height") }
         val after = retryQuery { challengeOf(genesis, target, height = surviveHeight) }
             ?: error("challenge for $target was LOST across the upgrade (absent at height $surviveHeight)")
         assertThat(after.target).isEqualTo(target)
