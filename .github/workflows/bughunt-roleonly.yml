@@ -190,3 +190,31 @@ jobs:
         with:
           name: bughunt-challengestuck-proof
           path: /tmp/proof/
+
+  # --- Round 5 ---
+  #   errormiss (V6-H): a gossiped junk Finish (bad sig, admitted to the mempool unverified via
+  #     AddTx) for the target inference id makes resolveFinishMessage return it over the verified
+  #     request finishTx with no fallback, so VerifyErrorMiss rejects -> the error-miss is never
+  #     voted (client never refunded, executor never Missed). Real StateMachine verifier.
+  errormiss:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./devshard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.9'
+          cache-dependency-path: devshard/go.sum
+      - name: Run V6-H error-miss suppression test (raw log teed for proof)
+        run: |
+          mkdir -p /tmp/proof
+          set -o pipefail
+          go test ./host/ -run '^TestBugHunt_V6_ErrorMissSuppressedByGossipedJunkFinish$' -count=1 -v 2>&1 | tee /tmp/proof/errormiss.log
+      - name: Upload errormiss raw proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bughunt-errormiss-proof
+          path: /tmp/proof/
