@@ -3,6 +3,7 @@ package state
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"devshard/internal/testutil"
@@ -56,15 +57,30 @@ func TestBugHunt_V6_FinishedToChallengedNeverResolvesLosesRefund(t *testing.T) {
 	require.NoError(t, err)
 
 	st := sm.SnapshotState()
-	require.Equal(t, types.StatusInvalidated, st.Inferences[2].Status,
+	const execSlot = uint32(2) // Y owns slot 2 = the executor of inference 2
+	var execInvalid uint32
+	if hs := st.HostStats[execSlot]; hs != nil {
+		execInvalid = hs.Invalid
+	}
+
+	// (a) the record should resolve to Invalidated, not sit stuck Challenged.
+	assert.Equal(t, types.StatusInvalidated, st.Inferences[2].Status,
 		"BUG V6-G: a single Phase-A invalid validation of weight 2 > VoteThreshold 1 left the inference "+
 			"stuck StatusChallenged (VotesInvalid=%d) instead of resolving to Invalidated — the "+
-			"Finished->Challenged branch (machine.go:1454) never calls resolveChallengeTalliesLocked, so "+
-			"the client is never refunded (balance still %d) and the record seals as Challenged. A repeat "+
-			"MsgValidation dedups and a MsgValidationVote returns ErrDuplicateVote, so it can never resolve.",
-		st.Inferences[2].VotesInvalid, st.Balance)
-	require.Greater(t, st.Balance, balAfterFinish,
-		"BUG V6-G: the invalidated inference must refund ActualCost to the client, but the balance is unchanged")
+			"Finished->Challenged branch (machine.go:1454) never calls resolveChallengeTalliesLocked. A "+
+			"repeat MsgValidation dedups and a MsgValidationVote returns ErrDuplicateVote, so it never resolves.",
+		st.Inferences[2].VotesInvalid)
+	// (b) the client should be refunded ActualCost.
+	assert.Greater(t, st.Balance, balAfterFinish,
+		"BUG V6-G: the invalidated inference must refund ActualCost to the client, but the balance is unchanged (%d)", st.Balance)
+	// (c) INCENTIVE: the executor whose work the network challenged-as-invalid must take the Invalid
+	// penalty on its HostStats (which feeds the epoch reward record). Because the challenge never
+	// resolves, Invalid++ (machine.go:1496) never runs — the bad executor ESCAPES the standing hit
+	// AND keeps payment. This is the "power over incentives" consequence, not just lost liveness.
+	assert.Equal(t, uint32(1), execInvalid,
+		"BUG V6-G (incentive): the executor of the challenged-invalid inference escaped the Invalid penalty "+
+			"(HostStats[%d].Invalid=%d, expected 1) and keeps payment — dodging the standing/reward hit that "+
+			"should follow a bad result", execSlot, execInvalid)
 }
 
 func signerSlice(s ...*signing.Secp256k1Signer) []*signing.Secp256k1Signer { return s }
