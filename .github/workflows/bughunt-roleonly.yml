@@ -244,3 +244,57 @@ jobs:
         with:
           name: bughunt-routeprefix-proof
           path: /tmp/proof/
+
+  # --- Round 6 ---
+  #   hasfinish (V6-J): a gossiped junk Finish (ProposedAt=0, unverified via AddTx) for inference N
+  #     makes Mempool.HasFinish(N) true (mempool.go:107, unlike its ProposedAt-skipping siblings), so
+  #     the StatusPending executor path (host.go:1155) returns no ExecutionJob -> the real executor
+  #     never runs the model -> stall to miss. Byzantine group member, one junk tx.
+  #   emvote (V6-K): CollectErrorMissVotes (user/session.go:4785) appends error-miss votes without
+  #     the per-vote signature/slot check collectTimeoutVotes applies -> one unverified vote poisons
+  #     the all-or-nothing applyErrorMiss -> legitimate error-miss suppressed (no refund, no Missed).
+  hasfinish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./devshard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.9'
+          cache-dependency-path: devshard/go.sum
+      - name: Run V6-J gossip-finish execution-suppression test (raw log teed for proof)
+        run: |
+          mkdir -p /tmp/proof
+          set -o pipefail
+          go test ./host/ -run '^TestBugHunt_V6_GossipedJunkFinishSuppressesExecution$' -count=1 -v 2>&1 | tee /tmp/proof/hasfinish.log
+      - name: Upload hasfinish raw proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bughunt-hasfinish-proof
+          path: /tmp/proof/
+
+  emvote:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./devshard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.9'
+          cache-dependency-path: devshard/go.sum
+      - name: Run V6-K error-miss unverified-vote test (raw log teed for proof)
+        run: |
+          mkdir -p /tmp/proof
+          set -o pipefail
+          go test ./user/ -run '^TestBugHunt_V6_ErrorMissVotesCollectedWithoutVerification$' -count=1 -v 2>&1 | tee /tmp/proof/emvote.log
+      - name: Upload emvote raw proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bughunt-emvote-proof
+          path: /tmp/proof/
