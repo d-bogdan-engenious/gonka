@@ -1,0 +1,78 @@
+name: GON-665 Challenge target can't submit CPoC
+
+# Runs ONLY ChallengeTargetCpocQaTests (PR #2206: a same-epoch PoC-challenge
+# target must not land a confirmation-PoC commit; ErrPoCChallengeCPoCCommit 1206
+# on the chain + off-chain validator skip). Self-contained in one job.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - gon665-challenge-cpoc
+
+permissions:
+  contents: read
+
+jobs:
+  challenge-cpoc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up disk space on runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af --volumes || true
+          sudo apt-get clean || true
+          df -h
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v4
+        with:
+          version: 'latest'
+
+      - name: Install Make
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '19'
+
+      - name: Set up Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Build Docker images
+        env:
+          GENESIS_OVERRIDES_FILE: "inference-chain/test_genesis_overrides.json"
+        run: |
+          sudo make build-docker
+          sudo docker images | head -20
+
+      - name: Start test chain
+        working-directory: local-test-net
+        run: sudo ./launch.sh
+
+      - name: Run ChallengeTargetCpocQaTests
+        run: sudo make run-tests TESTS=ChallengeTargetCpocQaTests
+
+      - name: Upload testermint logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gon665-testermint-logs
+          path: testermint/logs
+          retention-days: 3
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gon665-test-results
+          path: testermint/build/test-results/**/*.xml
+          retention-days: 3
