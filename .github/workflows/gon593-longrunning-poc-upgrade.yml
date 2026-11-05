@@ -1,0 +1,86 @@
+name: GON-593 Long-running PoC survives upgrade
+
+# Runs ONLY LongRunningPocUpgradeQaTests: an OPEN PoC challenge must survive a
+# cosmovisor software upgrade (challenge state lives in IAVL, no migration touches
+# it). Self-contained single job. Needs the local upgrade binaries staged via
+# `make build-for-upgrade-tests` (served to the chain from genesis-mock-server).
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - gon593-longrunning-poc-upgrade
+
+permissions:
+  contents: read
+
+jobs:
+  longrunning-poc-upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up disk space on runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af --volumes || true
+          sudo apt-get clean || true
+          df -h
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v4
+        with:
+          # Pin to 28.x: Docker 29 ('latest') breaks multi-network docker-compose on
+          # the runner with "Chain 'DOCKER-ISOLATION-STAGE-2' does not exist" (nf_tables).
+          version: '28.5.2'
+
+      - name: Install Make
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '19'
+
+      - name: Set up Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Build Docker images
+        env:
+          GENESIS_OVERRIDES_FILE: "inference-chain/test_genesis_overrides.json"
+        run: |
+          sudo make build-docker
+          sudo docker images | head -20
+
+      - name: Build upgrade binaries (staged under public-html/v2)
+        run: |
+          sudo make build-for-upgrade-tests
+          ls -la public-html/v2/inferenced public-html/v2/dapi || true
+
+      - name: Start test chain
+        working-directory: local-test-net
+        run: sudo ./launch.sh
+
+      - name: Run LongRunningPocUpgradeQaTests
+        run: sudo make run-tests TESTS=LongRunningPocUpgradeQaTests
+
+      - name: Upload testermint logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gon593-testermint-logs
+          path: testermint/logs
+          retention-days: 3
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gon593-test-results
+          path: testermint/build/test-results/**/*.xml
+          retention-days: 3
