@@ -75,6 +75,11 @@ func (app *App) setupUpgradeHandlers() {
 	app.setTrackedUpgradeHandler(v0_2_15.UpgradeName, v0_2_15.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.AuthzKeeper))
 	app.setTrackedUpgradeHandler(v0_2_16.UpgradeName, v0_2_16.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.AuthzKeeper))
 	app.setTrackedUpgradeHandler(v0_2_17.UpgradeName, v0_2_17.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	// QA GON-665/#2206: v0.2.17 already applied on tn3 (name consumed); this fresh name lets us
+	// gov-upgrade the binary to the #2206-inclusive build. #2206 is a pure validation-gate fix with
+	// no state migration, so an empty passthrough handler (capability fix + idempotent RunMigrations)
+	// is the correct, safe handler. The name MUST match the gov proposal or the chain halts at height.
+	app.setTrackedUpgradeHandler("v0.2.17-2206", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
 }
 
 func (app *App) registerMigrations() {

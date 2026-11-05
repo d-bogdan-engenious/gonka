@@ -1,0 +1,66 @@
+name: GON-665 build v0.2.17-2206 upgrade binaries
+
+# Builds the tn3 upgrade binaries (musl static, linux/amd64) from
+# upgrade-v0.2.17@c4d441052 (= includes PR #2206) + the new "v0.2.17-2206"
+# empty upgrade handler. Verifies the #2206 gate string and the new handler
+# name are baked into inferenced, then uploads the zips for staging on tn3.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - gon665-2206-upgrade-build
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
+
+      - name: Build inferenced + dapi upgrade zips (musl, linux/amd64)
+        run: |
+          mkdir -p public-html/v2/inferenced public-html/v2/dapi
+          make -C inference-chain build-for-upgrade PLATFORM=linux/amd64 GOOS=linux GOARCH=amd64
+          make -C decentralized-api build-for-upgrade PLATFORM=linux/amd64 GOOS=linux GOARCH=amd64
+          echo "=== produced zips ==="
+          ls -la public-html/v2/inferenced public-html/v2/dapi
+          sha256sum public-html/v2/inferenced/*.zip public-html/v2/dapi/*.zip
+
+      - name: Verify #2206 gate + v0.2.17-2206 handler are baked into inferenced
+        run: |
+          cd public-html/v2/inferenced
+          unzip -o inferenced-amd64.zip -d _x >/dev/null
+          BIN=$(find _x -type f -name inferenced | head -1)
+          echo "binary: $BIN size=$(stat -c%s "$BIN")"
+          N2206=$(grep -a -c 'same-epoch PoC challenge target cannot submit a confirmation PoC commit' "$BIN" || true)
+          NHANDLER=$(grep -a -c 'v0.2.17-2206' "$BIN" || true)
+          echo "n_2206_string=$N2206  n_handler_string=$NHANDLER"
+          test "$N2206" -ge 1 || { echo "::error::#2206 gate string MISSING in built inferenced"; exit 1; }
+          test "$NHANDLER" -ge 1 || { echo "::error::v0.2.17-2206 handler name MISSING in built inferenced"; exit 1; }
+          echo "OK: #2206 + v0.2.17-2206 handler both present"
+          rm -rf _x
+
+      - name: Upload upgrade binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: gon665-2206-upgrade-binaries
+          path: |
+            public-html/v2/inferenced/inferenced-amd64.zip
+            public-html/v2/dapi/decentralized-api-amd64.zip
+          retention-days: 5
