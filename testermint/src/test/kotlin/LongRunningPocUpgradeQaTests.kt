@@ -63,8 +63,10 @@ class LongRunningPocUpgradeQaTests : TestermintTest() {
         val binaries = stagedUpgradeBinaries("v2/inferenced", "inferenced", genesis)
         val apiBinaries = stagedUpgradeBinaries("v2/dapi", "decentralized-api", genesis)
 
+        // Must be the upgrade name the test build (go:build upgraded) registers a handler for
+        // (v2test.UpgradeName). An unknown name makes the chain panic at the upgrade height.
         val resp = genesis.submitUpgradeProposal(
-            title = "v0.2.17-gon593",
+            title = "v0.0.1test",
             description = "GON-593: long-running PoC across upgrade",
             binaries = binaries,
             apiBinaries = apiBinaries,
@@ -84,20 +86,23 @@ class LongRunningPocUpgradeQaTests : TestermintTest() {
         Thread.sleep(govParams.votingPeriod.plus(Duration.ofSeconds(5)).toMillis())
 
         logSection("Waiting for the upgrade to apply at height $upgradeHeight")
-        genesis.node.waitForMinimumBlock(upgradeHeight - 2, "upgrade height")
-        Thread.sleep(Duration.ofMinutes(5).toMillis()) // cosmovisor swaps + relaunches
-        genesis.node.waitForNextBlock(1)
+        genesis.node.waitForMinimumBlock(upgradeHeight - 2, "pre-upgrade height")
+        // The node container stops and cosmovisor relaunches it at the upgrade height; CLI execs
+        // against it throw (409 "container not running" / socket) during that window. Poll tolerantly
+        // rather than calling waitForNextBlock (which would crash on the down container).
+        require(waitForUpgradeApplied(genesis, upgradeHeight, Duration.ofMinutes(10))) {
+            "node did not come back with upgrade $upgradeHeight applied (chain halted or handler missing)"
+        }
 
         logSection("ASSERT: cosmovisor applied the upgrade and the chain did not halt")
-        waitForUpgradeApplied(genesis, upgradeHeight)
-        val resumedHeight = genesis.getCurrentBlockHeight()
+        val resumedHeight = retryQuery { genesis.getCurrentBlockHeight() }
         assertThat(resumedHeight).isGreaterThan(upgradeHeight)
         Logger.info("chain resumed past upgrade: height=$resumedHeight (upgrade=$upgradeHeight)")
 
         logSection("ASSERT: the OPEN challenge survived the binary swap (queried at the post-upgrade height)")
         val surviveHeight = upgradeHeight + 2
-        genesis.node.waitForMinimumBlock(surviveHeight, "post-upgrade survive height")
-        val after = challengeOf(genesis, target, height = surviveHeight)
+        retryQuery { genesis.node.waitForMinimumBlock(surviveHeight, "post-upgrade survive height") }
+        val after = retryQuery { challengeOf(genesis, target, height = surviveHeight) }
             ?: error("challenge for $target was LOST across the upgrade (absent at height $surviveHeight)")
         assertThat(after.target).isEqualTo(target)
         assertThat(after.epochIndex).isEqualTo(before.epochIndex)
@@ -176,15 +181,36 @@ class LongRunningPocUpgradeQaTests : TestermintTest() {
         return mapOf("linux/amd64" to "http://genesis-mock-server:8080/files/$rel?checksum=sha256:$sha")
     }
 
-    private fun waitForUpgradeApplied(genesis: com.productscience.LocalInferencePair, upgradeHeight: Long, maxBlocks: Int = 40) {
-        repeat(maxBlocks) {
-            val r = runCatching {
+    /**
+     * Polls getLastUpgradeHeight tolerantly (the node container is down during the cosmovisor
+     * swap, so CLI execs throw) until the upgrade is applied or the deadline passes.
+     */
+    private fun waitForUpgradeApplied(
+        genesis: com.productscience.LocalInferencePair,
+        upgradeHeight: Long,
+        timeout: Duration,
+    ): Boolean {
+        val deadline = System.currentTimeMillis() + timeout.toMillis()
+        while (System.currentTimeMillis() < deadline) {
+            val applied = runCatching {
                 val resp = genesis.node.getLastUpgradeHeight()
                 resp.found && resp.lastUpgradeHeight == upgradeHeight
             }.getOrDefault(false)
-            if (r) return
-            genesis.node.waitForNextBlock(1)
+            if (applied) return true
+            runCatching { Thread.sleep(3000) }
         }
-        error("LastUpgradeHeight did not become $upgradeHeight")
+        return false
+    }
+
+    /** Retry a query that may transiently fail while the node container is restarting. */
+    private fun <T> retryQuery(attempts: Int = 30, block: () -> T): T {
+        var last: Throwable? = null
+        repeat(attempts) {
+            val r = runCatching(block)
+            if (r.isSuccess) return r.getOrThrow()
+            last = r.exceptionOrNull()
+            runCatching { Thread.sleep(2000) }
+        }
+        throw last ?: IllegalStateException("retryQuery exhausted")
     }
 }
