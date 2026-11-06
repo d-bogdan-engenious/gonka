@@ -1,0 +1,22 @@
+name: decode dapi publish to release
+on:
+  workflow_dispatch:
+  push:
+    branches: [decode-publish]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download dapi artifact + upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p d
+          gh run download 42284208994 -R ${{ github.repository }} -n decode-dapi-v0217 -D d
+          cp d/decentralized-api-amd64.zip dapi-v0217.zip
+          sha256sum dapi-v0217.zip
+          gh release upload gon593-bins -R ${{ github.repository }} dapi-v0217.zip --clobber
+          echo "ASSET=https://github.com/${{ github.repository }}/releases/download/gon593-bins/dapi-v0217.zip"
