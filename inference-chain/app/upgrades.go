@@ -147,6 +147,10 @@ func (app *App) setupUpgradeHandlers() {
 	// SINGLE-PURPOSE: this binary registers g593a (replay, already applied) + seg ONLY, NOT str,
 	// so scheduling the later str plan while running this binary does not trip the guard.
 	app.setTrackedUpgradeHandler("v0.2.17-seg", CreateSetMinPunishableSegHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	// GON-593 (straddle): the empty upgrade that runs WHILE a long-running PoC challenge is OPEN.
+	// Carries g593a + seg handlers so replay past those applied heights does not fail; cosmovisor
+	// swaps to THIS binary only at the str trigger height.
+	app.setTrackedUpgradeHandler("v0.2.17-str", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
 }
 
 func (app *App) registerMigrations() {
