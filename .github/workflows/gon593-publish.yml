@@ -4,8 +4,6 @@ name: GON-593 publish binaries to release
 # URL directly (node->GitHub, fast) into their cosmovisor upgrade dirs.
 on:
   workflow_dispatch:
-  push:
-    branches: [gon593-publish]
 permissions:
   contents: write
   actions: read

@@ -1,0 +1,31 @@
+name: GON-593 publish seg+str to release
+on:
+  workflow_dispatch:
+  push:
+    branches: [gon593-publish]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download seg+str artifacts (GitHub-internal)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p s t
+          gh run download 42230090664 -R ${{ github.repository }} -n gon593-gon593-seg-inferenced -D s
+          gh run download 42230132063 -R ${{ github.repository }} -n gon593-gon593-str-inferenced -D t
+          cp s/inferenced-amd64.zip inferenced-seg.zip
+          cp t/inferenced-amd64.zip inferenced-str.zip
+          sha256sum inferenced-seg.zip inferenced-str.zip
+      - name: Upload to existing release (append, clobber)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view gon593-bins -R ${{ github.repository }} >/dev/null 2>&1 || \
+            gh release create gon593-bins -R ${{ github.repository }} --title "GON-593 staging binaries" --notes "seg+str"
+          gh release upload gon593-bins -R ${{ github.repository }} inferenced-seg.zip inferenced-str.zip --clobber
+          echo "ASSET_SEG=https://github.com/${{ github.repository }}/releases/download/gon593-bins/inferenced-seg.zip"
+          echo "ASSET_STR=https://github.com/${{ github.repository }}/releases/download/gon593-bins/inferenced-str.zip"
