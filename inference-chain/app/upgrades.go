@@ -28,6 +28,7 @@ import (
 	"github.com/productscience/inference/app/upgrades/v0_2_7"
 	"github.com/productscience/inference/app/upgrades/v0_2_8"
 	"github.com/productscience/inference/app/upgrades/v0_2_9"
+	inferencekeeper "github.com/productscience/inference/x/inference/keeper"
 	inferencetypes "github.com/productscience/inference/x/inference/types"
 )
 
@@ -45,6 +46,41 @@ func CreateEmptyUpgradeHandler(
 		// the `InitGenesis` to panic.
 		if _, ok := vm["capability"]; !ok {
 			vm["capability"] = mm.Modules["capability"].(module.HasConsensusVersion).ConsensusVersion()
+		}
+		return mm.RunMigrations(ctx, configurator, vm)
+	}
+}
+
+// CreateSetDecodeHandler cuts the active PoC scheme over to DECODE by setting
+// poc_params.poc_scheme = POC_SCHEME_DECODE. The v0.2.17 migration already populated each
+// model's schemes=[PREFILL,DECODE] (visible only via the keeper binary-proto store, not the
+// lossy CLI JSON), so this flip selects the existing DECODE block for the next frozen PoC
+// recipe. Done via a handler because MsgUpdateParams can't round-trip schemes[] on this chain
+// (it would send schemes:null and wipe the migrated blocks). GetParams reads the full state.
+func CreateSetDecodeHandler(
+	mm *module.Manager,
+	configurator module.Configurator,
+	k inferencekeeper.Keeper,
+) upgradetypes.UpgradeHandler {
+	return func(ctx context.Context, plan upgradetypes.Plan, vm module.VersionMap) (module.VersionMap, error) {
+		if _, ok := vm["capability"]; !ok {
+			vm["capability"] = mm.Modules["capability"].(module.HasConsensusVersion).ConsensusVersion()
+		}
+		params, err := k.GetParams(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if params.PocParams != nil {
+			ns := 0
+			if len(params.PocParams.Models) > 0 {
+				ns = len(params.PocParams.Models[0].Schemes)
+			}
+			fmt.Printf("DECODE-CUTOVER: before poc_scheme=%v model0_schemes=%d\n", params.PocParams.PocScheme, ns)
+			params.PocParams.PocScheme = inferencetypes.PocScheme_POC_SCHEME_DECODE
+			if err := k.SetParams(ctx, params); err != nil {
+				return nil, err
+			}
+			fmt.Printf("DECODE-CUTOVER: set poc_scheme=POC_SCHEME_DECODE (model0_schemes=%d)\n", ns)
 		}
 		return mm.RunMigrations(ctx, configurator, vm)
 	}
@@ -82,6 +118,10 @@ func (app *App) setupUpgradeHandlers() {
 	app.setTrackedUpgradeHandler("v0.2.17-g593a", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
 	app.setTrackedUpgradeHandler("v0.2.17-seg", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
 	app.setTrackedUpgradeHandler("v0.2.17-str", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
+	// Decode cutover: flip active PoC scheme to DECODE (schemes[DECODE] already exists from the
+	// v0.2.17 migration). Single-purpose: this binary adds v0.2.17-decode; cosmovisor swaps to it
+	// only at the decode upgrade height.
+	app.setTrackedUpgradeHandler("v0.2.17-decode", CreateSetDecodeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
 }
 
 func (app *App) registerMigrations() {

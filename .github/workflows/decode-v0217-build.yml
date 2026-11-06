@@ -6,7 +6,7 @@ name: decode v0.2.17 upgrade binary
 on:
   workflow_dispatch:
   push:
-    branches: [decode-v0217]
+    branches: [decode-v0217, decode-cut]
 permissions:
   contents: read
 jobs:
@@ -31,7 +31,7 @@ jobs:
           unzip -o inferenced-amd64.zip -d _x >/dev/null
           BIN=$(find _x -type f -name inferenced | head -1)
           echo "binary: $BIN size=$(stat -c%s "$BIN")"
-          for s in 'v0.2.17-g593a' 'v0.2.17-seg' 'v0.2.17-str' 'POC_SCHEME_DECODE'; do
+          for s in 'v0.2.17-g593a' 'v0.2.17-seg' 'v0.2.17-str' 'v0.2.17-decode' 'POC_SCHEME_DECODE'; do
             n=$(grep -a -c "$s" "$BIN" || true); echo "  $s = $n"
             test "$n" -ge 1 || { echo "::error::missing string $s"; exit 1; }
           done
@@ -39,6 +39,6 @@ jobs:
           rm -rf _x
       - uses: actions/upload-artifact@v4
         with:
-          name: decode-v0217-inferenced
+          name: decode-${{ github.ref_name }}-inferenced
           path: public-html/v2/inferenced/inferenced-amd64.zip
           retention-days: 5
