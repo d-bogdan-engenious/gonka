@@ -109,6 +109,11 @@ func (app *App) setupUpgradeHandlers() {
 	// later g593b plan is scheduled, the x/upgrade "BINARY UPDATED BEFORE TRIGGER" guard does
 	// not fire (that guard is what halted a prior combined-handler binary).
 	app.setTrackedUpgradeHandler("v0.2.17-g593a", CreateSetAlphaUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	// GON-593 live (straddle upgrade): the empty upgrade whose BeginBlocker runs while a
+	// long-running PoC challenge is OPEN. cosmovisor swaps to THIS binary only at the g593b
+	// trigger height; g593a is also registered here so replay past the alpha height does not
+	// fail with "upgrade handler is missing" (the handler body is not re-run on replay).
+	app.setTrackedUpgradeHandler("v0.2.17-g593b", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
 }
 
 func (app *App) registerMigrations() {
