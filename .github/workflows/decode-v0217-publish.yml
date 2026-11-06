@@ -1,0 +1,24 @@
+name: decode v0.2.17 publish to release
+on:
+  workflow_dispatch:
+  push:
+    branches: [decode-publish]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download decode-v0217 artifact + upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p v
+          gh run download 42263893216 -R ${{ github.repository }} -n decode-v0217-inferenced -D v
+          cp v/inferenced-amd64.zip inferenced-v0217.zip
+          sha256sum inferenced-v0217.zip
+          gh release view gon593-bins -R ${{ github.repository }} >/dev/null 2>&1 || \
+            gh release create gon593-bins -R ${{ github.repository }} --title "GON-593 + decode binaries" --notes "staging"
+          gh release upload gon593-bins -R ${{ github.repository }} inferenced-v0217.zip --clobber
+          echo "ASSET=https://github.com/${{ github.repository }}/releases/download/gon593-bins/inferenced-v0217.zip"
