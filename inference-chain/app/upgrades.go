@@ -79,6 +79,40 @@ func CreateSetAlphaUpgradeHandler(
 	}
 }
 
+// CreateSetMinPunishableSegHandler lowers poc_challenge_params.min_punishable_segment_blocks
+// to 50 so a PoC challenge can be opened on a short-epoch testnet (epoch_length=280). The
+// default is 300, which requires (nextPoCStart - safetyWindow - 300) >= inference-phase start
+// — impossible when epoch_length < ~425, so create-poc-challenge rejects with code 1204
+// "remaining segment shorter than 300 blocks". Keeps alpha set (idempotent) and preserves
+// MaxActiveChallenges (>0, required by Validate).
+func CreateSetMinPunishableSegHandler(
+	mm *module.Manager,
+	configurator module.Configurator,
+	k inferencekeeper.Keeper,
+) upgradetypes.UpgradeHandler {
+	return func(ctx context.Context, plan upgradetypes.Plan, vm module.VersionMap) (module.VersionMap, error) {
+		if _, ok := vm["capability"]; !ok {
+			vm["capability"] = mm.Modules["capability"].(module.HasConsensusVersion).ConsensusVersion()
+		}
+		params, err := k.GetParams(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if params.ConfirmationPocParams == nil {
+			params.ConfirmationPocParams = &inferencetypes.ConfirmationPoCParams{}
+		}
+		params.ConfirmationPocParams.AlphaThreshold = inferencetypes.DecimalFromFloat(0.01)
+		if params.PocChallengeParams == nil {
+			params.PocChallengeParams = inferencetypes.DefaultPoCChallengeParams()
+		}
+		params.PocChallengeParams.MinPunishableSegmentBlocks = 50
+		if err := k.SetParams(ctx, params); err != nil {
+			return nil, err
+		}
+		return mm.RunMigrations(ctx, configurator, vm)
+	}
+}
+
 func (app *App) setupUpgradeHandlers() {
 	app.Logger().Info("Setting up upgrade handlers")
 	upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
@@ -109,6 +143,10 @@ func (app *App) setupUpgradeHandlers() {
 	// later g593b plan is scheduled, the x/upgrade "BINARY UPDATED BEFORE TRIGGER" guard does
 	// not fire (that guard is what halted a prior combined-handler binary).
 	app.setTrackedUpgradeHandler("v0.2.17-g593a", CreateSetAlphaUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	// GON-593 (enabler #2): lower min_punishable_segment_blocks so a challenge fits epoch 280.
+	// SINGLE-PURPOSE: this binary registers g593a (replay, already applied) + seg ONLY, NOT str,
+	// so scheduling the later str plan while running this binary does not trip the guard.
+	app.setTrackedUpgradeHandler("v0.2.17-seg", CreateSetMinPunishableSegHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
 }
 
 func (app *App) registerMigrations() {

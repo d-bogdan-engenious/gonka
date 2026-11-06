@@ -12,6 +12,8 @@ on:
     branches:
       - gon593-live-a
       - gon593-live-b
+      - gon593-seg
+      - gon593-str
 
 permissions:
   contents: read
@@ -52,19 +54,32 @@ jobs:
           echo "binary: $BIN size=$(stat -c%s "$BIN")"
           NA=$(grep -a -c 'v0.2.17-g593a' "$BIN" || true)
           NB=$(grep -a -c 'v0.2.17-g593b' "$BIN" || true)
+          NSEG=$(grep -a -c 'v0.2.17-seg' "$BIN" || true)
+          NSTR=$(grep -a -c 'v0.2.17-str' "$BIN" || true)
           NCHAL=$(grep -a -c 'create-poc-challenge' "$BIN" || true)
-          echo "branch=${GITHUB_REF_NAME}  n_g593a=$NA  n_g593b=$NB  n_create_poc_challenge=$NCHAL"
+          echo "branch=${GITHUB_REF_NAME}  g593a=$NA g593b=$NB seg=$NSEG str=$NSTR create-poc-challenge=$NCHAL"
           test "$NCHAL" -ge 1 || { echo "::error::create-poc-challenge feature MISSING from binary"; exit 1; }
           case "${GITHUB_REF_NAME}" in
             gon593-live-a)
               test "$NA" -ge 1 || { echo "::error::g593a handler MISSING"; exit 1; }
-              test "$NB" -eq 0 || { echo "::error::g593b handler PRESENT in branch A (must be absent!)"; exit 1; }
-              echo "OK A: g593a present, g593b ABSENT (safe single-purpose enabler binary)"
+              test "$NB" -eq 0 || { echo "::error::g593b PRESENT in branch A (must be absent!)"; exit 1; }
+              echo "OK A: g593a present, g593b ABSENT"
               ;;
             gon593-live-b)
-              test "$NA" -ge 1 || { echo "::error::g593a handler MISSING in branch B (needed for replay)"; exit 1; }
-              test "$NB" -ge 1 || { echo "::error::g593b handler MISSING in branch B"; exit 1; }
-              echo "OK B: g593a + g593b both present (straddle binary)"
+              test "$NA" -ge 1 && test "$NB" -ge 1 || { echo "::error::branch B needs g593a+g593b"; exit 1; }
+              echo "OK B: g593a + g593b present"
+              ;;
+            gon593-seg)
+              test "$NA" -ge 1 || { echo "::error::seg binary missing g593a (replay)"; exit 1; }
+              test "$NSEG" -ge 1 || { echo "::error::seg handler MISSING"; exit 1; }
+              test "$NSTR" -eq 0 || { echo "::error::str PRESENT in seg binary (must be absent!)"; exit 1; }
+              echo "OK SEG: g593a + seg present, str ABSENT (safe single-purpose enabler)"
+              ;;
+            gon593-str)
+              test "$NA" -ge 1 || { echo "::error::str binary missing g593a (replay)"; exit 1; }
+              test "$NSEG" -ge 1 || { echo "::error::str binary missing seg (replay)"; exit 1; }
+              test "$NSTR" -ge 1 || { echo "::error::str handler MISSING"; exit 1; }
+              echo "OK STR: g593a + seg + str present (straddle binary)"
               ;;
             *)
               echo "note: manual dispatch on ${GITHUB_REF_NAME}; printed counts only" ;;
