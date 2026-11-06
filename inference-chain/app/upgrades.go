@@ -27,6 +27,7 @@ import (
 	"github.com/productscience/inference/app/upgrades/v0_2_7"
 	"github.com/productscience/inference/app/upgrades/v0_2_8"
 	"github.com/productscience/inference/app/upgrades/v0_2_9"
+	inferencekeeper "github.com/productscience/inference/x/inference/keeper"
 	inferencetypes "github.com/productscience/inference/x/inference/types"
 )
 
@@ -44,6 +45,35 @@ func CreateEmptyUpgradeHandler(
 		// the `InitGenesis` to panic.
 		if _, ok := vm["capability"]; !ok {
 			vm["capability"] = mm.Modules["capability"].(module.HasConsensusVersion).ConsensusVersion()
+		}
+		return mm.RunMigrations(ctx, configurator, vm)
+	}
+}
+
+// CreateSetAlphaUpgradeHandler sets confirmation_poc_params.alpha_threshold=0.01 in Go
+// (keeper store round-trip is proto-lossless, so any per-model scheme blocks are preserved)
+// and runs migrations. MsgUpdateParams cannot carry the per-model schemes field on this
+// chain, so alpha (required to OPEN a PoC challenge, else code 1204) must be set via a
+// handler. GON-593 live: enables opening a long-running PoC challenge before a later upgrade.
+func CreateSetAlphaUpgradeHandler(
+	mm *module.Manager,
+	configurator module.Configurator,
+	k inferencekeeper.Keeper,
+) upgradetypes.UpgradeHandler {
+	return func(ctx context.Context, plan upgradetypes.Plan, vm module.VersionMap) (module.VersionMap, error) {
+		if _, ok := vm["capability"]; !ok {
+			vm["capability"] = mm.Modules["capability"].(module.HasConsensusVersion).ConsensusVersion()
+		}
+		params, err := k.GetParams(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if params.ConfirmationPocParams == nil {
+			params.ConfirmationPocParams = &inferencetypes.ConfirmationPoCParams{}
+		}
+		params.ConfirmationPocParams.AlphaThreshold = inferencetypes.DecimalFromFloat(0.01)
+		if err := k.SetParams(ctx, params); err != nil {
+			return nil, err
 		}
 		return mm.RunMigrations(ctx, configurator, vm)
 	}
@@ -73,6 +103,12 @@ func (app *App) setupUpgradeHandlers() {
 	app.setTrackedUpgradeHandler(v0_2_14.UpgradeName, v0_2_14.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.GenesistransferKeeper, app.MintKeeper))
 	app.setTrackedUpgradeHandler(v0_2_15.UpgradeName, v0_2_15.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.AuthzKeeper))
 	app.setTrackedUpgradeHandler(v0_2_16.UpgradeName, v0_2_16.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.AuthzKeeper))
+	// QA GON-593 live (enabler upgrade): set CPoC alpha_threshold so a long-running PoC
+	// challenge can be OPENed. SINGLE-PURPOSE binary — this build registers ONLY g593a and
+	// deliberately does NOT register g593b, so that while the chain runs this binary and the
+	// later g593b plan is scheduled, the x/upgrade "BINARY UPDATED BEFORE TRIGGER" guard does
+	// not fire (that guard is what halted a prior combined-handler binary).
+	app.setTrackedUpgradeHandler("v0.2.17-g593a", CreateSetAlphaUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
 }
 
 func (app *App) registerMigrations() {

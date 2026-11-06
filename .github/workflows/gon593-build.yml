@@ -1,0 +1,79 @@
+name: GON-593 live PoC-challenge-during-upgrade binaries
+
+# Builds the tn3 upgrade binary (musl static, linux/amd64) from the DEPLOYED
+# chain source release/v0.2.16-post1 (= 136041c8) plus GON-593 upgrade handlers.
+# Two single-purpose binaries (one per branch), so neither carries a future
+# upgrade's handler early (that combination halted a prior run):
+#   gon593-live-a -> registers ONLY "v0.2.17-g593a" (sets CPoC alpha). NO g593b.
+#   gon593-live-b -> registers "v0.2.17-g593a" (for replay) + "v0.2.17-g593b" (empty straddle).
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - gon593-live-a
+      - gon593-live-b
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
+
+      - name: Build inferenced upgrade zip (musl, linux/amd64)
+        run: |
+          mkdir -p public-html/v2/inferenced
+          make -C inference-chain build-for-upgrade PLATFORM=linux/amd64 GOOS=linux GOARCH=amd64
+          echo "=== produced zip ==="
+          ls -la public-html/v2/inferenced
+          sha256sum public-html/v2/inferenced/*.zip
+
+      - name: Verify GON-593 upgrade handlers baked into inferenced (per branch)
+        run: |
+          cd public-html/v2/inferenced
+          unzip -o inferenced-amd64.zip -d _x >/dev/null
+          BIN=$(find _x -type f -name inferenced | head -1)
+          echo "binary: $BIN size=$(stat -c%s "$BIN")"
+          NA=$(grep -a -c 'v0.2.17-g593a' "$BIN" || true)
+          NB=$(grep -a -c 'v0.2.17-g593b' "$BIN" || true)
+          NCHAL=$(grep -a -c 'create-poc-challenge' "$BIN" || true)
+          echo "branch=${GITHUB_REF_NAME}  n_g593a=$NA  n_g593b=$NB  n_create_poc_challenge=$NCHAL"
+          test "$NCHAL" -ge 1 || { echo "::error::create-poc-challenge feature MISSING from binary"; exit 1; }
+          case "${GITHUB_REF_NAME}" in
+            gon593-live-a)
+              test "$NA" -ge 1 || { echo "::error::g593a handler MISSING"; exit 1; }
+              test "$NB" -eq 0 || { echo "::error::g593b handler PRESENT in branch A (must be absent!)"; exit 1; }
+              echo "OK A: g593a present, g593b ABSENT (safe single-purpose enabler binary)"
+              ;;
+            gon593-live-b)
+              test "$NA" -ge 1 || { echo "::error::g593a handler MISSING in branch B (needed for replay)"; exit 1; }
+              test "$NB" -ge 1 || { echo "::error::g593b handler MISSING in branch B"; exit 1; }
+              echo "OK B: g593a + g593b both present (straddle binary)"
+              ;;
+            *)
+              echo "note: manual dispatch on ${GITHUB_REF_NAME}; printed counts only" ;;
+          esac
+          rm -rf _x
+
+      - name: Upload upgrade binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gon593-${{ github.ref_name }}-inferenced
+          path: public-html/v2/inferenced/inferenced-amd64.zip
+          retention-days: 5
