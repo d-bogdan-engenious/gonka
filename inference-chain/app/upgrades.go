@@ -75,6 +75,13 @@ func (app *App) setupUpgradeHandlers() {
 	app.setTrackedUpgradeHandler(v0_2_15.UpgradeName, v0_2_15.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.AuthzKeeper))
 	app.setTrackedUpgradeHandler(v0_2_16.UpgradeName, v0_2_16.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper, app.AuthzKeeper))
 	app.setTrackedUpgradeHandler(v0_2_17.UpgradeName, v0_2_17.CreateUpgradeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	// Replay-existence handlers for the QA upgrades already applied on this tn3 chain
+	// (g593a=alpha, seg=minPunishable, str=empty straddle). Bodies are NOT re-run on replay —
+	// they only need to EXIST so x/upgrade does not error "handler is missing" when this v0.2.17
+	// binary replays past those applied heights. Params they set are already in IAVL state.
+	app.setTrackedUpgradeHandler("v0.2.17-g593a", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
+	app.setTrackedUpgradeHandler("v0.2.17-seg", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
+	app.setTrackedUpgradeHandler("v0.2.17-str", CreateEmptyUpgradeHandler(app.ModuleManager, app.Configurator()))
 }
 
 func (app *App) registerMigrations() {

@@ -1,0 +1,44 @@
+name: decode v0.2.17 upgrade binary
+# Builds the mainline v0.2.17 upgrade binary (musl, linux/amd64) from c4d441052 PLUS empty
+# replay-existence handlers for the QA upgrades already applied on tn3 (g593a/seg/str), so the
+# node does not crash on replay past those heights. For the in-place v0.2.16-post1 -> v0.2.17
+# gov upgrade on tn3 (Stage A of the multimodel-decode bring-up).
+on:
+  workflow_dispatch:
+  push:
+    branches: [decode-v0217]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
+      - name: Build inferenced upgrade zip (musl, linux/amd64)
+        run: |
+          mkdir -p public-html/v2/inferenced
+          make -C inference-chain build-for-upgrade PLATFORM=linux/amd64 GOOS=linux GOARCH=amd64
+          ls -la public-html/v2/inferenced; sha256sum public-html/v2/inferenced/*.zip
+      - name: Verify v0.2.17 mainline + replay handlers baked in
+        run: |
+          cd public-html/v2/inferenced
+          unzip -o inferenced-amd64.zip -d _x >/dev/null
+          BIN=$(find _x -type f -name inferenced | head -1)
+          echo "binary: $BIN size=$(stat -c%s "$BIN")"
+          for s in 'v0.2.17-g593a' 'v0.2.17-seg' 'v0.2.17-str' 'POC_SCHEME_DECODE'; do
+            n=$(grep -a -c "$s" "$BIN" || true); echo "  $s = $n"
+            test "$n" -ge 1 || { echo "::error::missing string $s"; exit 1; }
+          done
+          echo "OK: replay handlers + decode scheme enum present"
+          rm -rf _x
+      - uses: actions/upload-artifact@v4
+        with:
+          name: decode-v0217-inferenced
+          path: public-html/v2/inferenced/inferenced-amd64.zip
+          retention-days: 5
