@@ -1,0 +1,38 @@
+name: GON-593 publish binaries to release
+# Promotes the already-built CI artifacts (from the gon593-live-a/b build runs) to a public
+# GitHub release, entirely GitHub-internal (no laptop upload). tn3 nodes then wget the release
+# URL directly (node->GitHub, fast) into their cosmovisor upgrade dirs.
+on:
+  workflow_dispatch:
+  push:
+    branches: [gon593-publish]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built artifacts (GitHub-internal)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p a b
+          gh run download 42213694144 -R ${{ github.repository }} -n gon593-gon593-live-a-inferenced -D a
+          gh run download 42213744401 -R ${{ github.repository }} -n gon593-gon593-live-b-inferenced -D b
+          cp a/inferenced-amd64.zip inferenced-g593a.zip
+          cp b/inferenced-amd64.zip inferenced-g593b.zip
+          echo "=== sha256 (for cosmovisor checksum if needed) ==="
+          sha256sum inferenced-g593a.zip inferenced-g593b.zip
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete gon593-bins -R ${{ github.repository }} --yes --cleanup-tag 2>/dev/null || true
+          sleep 2
+          gh release create gon593-bins -R ${{ github.repository }} \
+            --title "GON-593 staging binaries" \
+            --notes "g593a (alpha-only) + g593b (alpha+straddle) inferenced musl linux/amd64, from 136041c8" \
+            inferenced-g593a.zip inferenced-g593b.zip
+          echo "ASSET_A=https://github.com/${{ github.repository }}/releases/download/gon593-bins/inferenced-g593a.zip"
+          echo "ASSET_B=https://github.com/${{ github.repository }}/releases/download/gon593-bins/inferenced-g593b.zip"
