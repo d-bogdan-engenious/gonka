@@ -1,0 +1,22 @@
+name: decode-cut publish to release
+on:
+  workflow_dispatch:
+  push:
+    branches: [decode-publish]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download decode-cut artifact + upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p d
+          gh run download 42269394362 -R ${{ github.repository }} -n decode-decode-cut-inferenced -D d
+          cp d/inferenced-amd64.zip inferenced-decode.zip
+          sha256sum inferenced-decode.zip
+          gh release upload gon593-bins -R ${{ github.repository }} inferenced-decode.zip --clobber
+          echo "ASSET=https://github.com/${{ github.repository }}/releases/download/gon593-bins/inferenced-decode.zip"
