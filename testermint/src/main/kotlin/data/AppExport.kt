@@ -99,6 +99,21 @@ data class InferenceParams(
     val delegationParams: DelegationParams? = null,
     @SerializedName("poc_challenge_params")
     val pocChallengeParams: PocChallengeParams? = null,
+    @SerializedName("epoch_validation_params")
+    val epochValidationParams: EpochValidationParams? = null,
+)
+
+// EpochValidationParams (Go proto field 19) holds per-participant epoch admission caps,
+// incl. min_epoch_acceptance_weight (QA-109 / PR #2207): the minimum RAW claimed PoC weight
+// (store-commit count x time-normalization, before dynamic coefficients) for one
+// participant+model to enter the next epoch. Default 1 = the historical floor.
+data class EpochValidationParams(
+    @SerializedName("max_positive_distribution_rows")
+    val maxPositiveDistributionRows: Long = 0,
+    @SerializedName("max_validations_per_message")
+    val maxValidationsPerMessage: Long = 0,
+    @SerializedName("min_epoch_acceptance_weight")
+    val minEpochAcceptanceWeight: Long = 0,
 )
 
 data class FeeParamsData(
