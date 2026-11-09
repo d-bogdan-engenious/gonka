@@ -156,6 +156,95 @@ class EpochAcceptanceWeightQaTests : TestermintTest() {
         }
     }
 
+    /**
+     * QA-109 SHARP finding (live-reproduced on tn3, 2026-11-09): a floor set IN-BAND — above only
+     * SOME validators' raw weight, not all — is NOT protected by the empty-epoch seatbelt (which
+     * only fires when EVERY miner is excluded). The sub-floor validators are really dropped: they
+     * UNBOND and the consensus set shrinks (here to the single surviving validator). Recovery is
+     * GATED: the dropped validators come back only once the floor is back in range AND the surviving
+     * validator re-admits their PoC across epochs. This is the partial-cascade the uniform-raise
+     * test above cannot show (its seatbelt re-seats everyone).
+     */
+    @Test
+    fun `in-band floor really unbonds sub-floor validators then gated recovery re-bonds them`() {
+        logSection("=== QA-109: in-band floor -> partial valset collapse + gated recovery ===")
+
+        val (cluster, genesis) = initCluster(
+            joinCount = 2,
+            config = config,
+            reboot = true,
+            resetMlNodes = false,
+        )
+        cluster.allPairs.forEach { it.waitForMlNodesToLoad() }
+        val joins = cluster.joinPairs
+
+        logSection("Phase 1: split the band (genesis far above floor, joins far below) -> all 3 admitted at floor 1")
+        genesis.setPocWeight(100_000L)
+        joins.forEach { it.setPocWeight(5L) }
+        genesis.waitForStage(EpochStage.START_OF_POC)
+        genesis.waitForStage(EpochStage.CLAIM_REWARDS, offset = 2)
+        genesis.node.waitForNextBlock(3)
+        val before = genesis.api.getActiveParticipants()
+        val beforeEpochId = before.activeParticipants.epochId
+        assertThat(before.activeParticipants.participants)
+            .describedAs("all 3 admitted at the default floor of 1").hasSize(3)
+        assertThat(genesis.node.getCometValidators().validators)
+            .describedAs("3 validators in the consensus set").hasSize(3)
+
+        logSection("Phase 2: raise floor INTO the band (above the joins' 5, below genesis' 100000)")
+        setAcceptanceFloor(genesis, cluster, 1_000L)
+        genesis.waitForStage(EpochStage.START_OF_POC)
+        genesis.waitForStage(EpochStage.CLAIM_REWARDS, offset = 2)
+        genesis.node.waitForNextBlock(3)
+
+        logSection("Phase 3: the 2 joins are REALLY dropped (no seatbelt) -> UNBONDING, consensus set shrinks to 1; genesis survives; no halt")
+        val collapsed = genesis.api.getActiveParticipants()
+        assertThat(collapsed.activeParticipants.epochId)
+            .describedAs("chain keeps advancing on the surviving validator (no halt)")
+            .isGreaterThan(beforeEpochId)
+        joins.forEach { j ->
+            assertThat(collapsed.activeParticipants.getParticipant(j))
+                .describedAs("${j.name} dropped from the active set by the in-band floor").isNull()
+        }
+        assertThat(collapsed.activeParticipants.getParticipant(genesis))
+            .describedAs("genesis survives (weight above floor)").isNotNull
+        val collapsedVals = genesis.node.getValidators().validators
+        joins.forEach { j ->
+            val v = collapsedVals.find { it.consensusPubkey.value == j.node.getValidatorInfo().key }
+            assertThat(v).describedAs("${j.name} still has a staking record").isNotNull
+            assertThat(v!!.statusEnum)
+                .describedAs("${j.name} is UNBONDING after the in-band drop (not protected by the seatbelt)")
+                .isEqualTo(StakeValidatorStatus.UNBONDING)
+        }
+        assertThat(genesis.node.getCometValidators().validators)
+            .describedAs("consensus set collapsed to the single surviving validator").hasSize(1)
+
+        logSection("Phase 4: restore weight + revert floor -> gated recovery re-bonds the joins across epochs")
+        joins.forEach { it.setPocWeight(100_000L) }
+        setAcceptanceFloor(genesis, cluster, 1L)
+        var recoveredAddresses = emptySet<String>()
+        for (attempt in 1..4) {
+            genesis.waitForStage(EpochStage.START_OF_POC)
+            genesis.waitForStage(EpochStage.CLAIM_REWARDS, offset = 2)
+            genesis.node.waitForNextBlock(3)
+            recoveredAddresses = genesis.api.getActiveParticipants()
+                .activeParticipants.participants.map { it.index }.toSet()
+            Logger.info("Recovery attempt $attempt: active=${recoveredAddresses.size} -> $recoveredAddresses")
+            if (recoveredAddresses.size == 3) break
+        }
+        assertThat(recoveredAddresses)
+            .describedAs("all 3 re-admitted after the floor is back in range (gated recovery)").hasSize(3)
+        assertThat(genesis.node.getCometValidators().validators)
+            .describedAs("consensus set recovered to 3").hasSize(3)
+        joins.forEach { j ->
+            val v = genesis.node.getValidators().validators
+                .find { it.consensusPubkey.value == j.node.getValidatorInfo().key }
+            assertThat(v!!.statusEnum)
+                .describedAs("${j.name} is BONDED again after recovery")
+                .isEqualTo(StakeValidatorStatus.BONDED)
+        }
+    }
+
     private fun setAcceptanceFloor(genesis: LocalInferencePair, cluster: LocalCluster, floor: Long) {
         val current = genesis.getParams()
         val evp = current.epochValidationParams ?: EpochValidationParams(256, 128, 1)
