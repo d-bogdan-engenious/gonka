@@ -1,0 +1,165 @@
+name: QA-109 testermint (min_epoch_acceptance_weight)
+# Single-class testermint run for EpochAcceptanceWeightQaTests (QA-109 / PR #2207).
+# Mirrors test-workflow.yml's build-images + run-tests jobs, no matrix, no upgrade build.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa109-testermint
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Free up disk space on runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af --volumes || true
+          sudo apt-get clean || true
+          df -h
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Set up Docker (Latest Version)
+        uses: docker/setup-docker-action@v4
+        with:
+          version: 'latest'
+      - name: Verify Docker
+        run: docker --version && docker compose version
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Make
+        run: sudo apt-get update && sudo apt-get install -y make
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '19'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - name: Make Docker Images
+        env:
+          GENESIS_OVERRIDES_FILE: "inference-chain/test_genesis_overrides.json"
+          USE_REGISTRY_CACHE: "0"
+        run: |
+          make build-docker
+          DEVSHARD_VERSION=testapp DEVSHARD_BINARY_VERSION=testapp make devshardd-build devshardctl-build
+          cat build/devshard-version
+          docker images | head -20
+      - name: Save Docker Images
+        run: |
+          mkdir -p docker-images
+          docker save -o docker-images/inference-chain.tar ghcr.io/product-science/inferenced:latest
+          docker save -o docker-images/decentralized-api.tar ghcr.io/product-science/api:latest
+          docker save -o docker-images/inference-mock-server.tar inference-mock-server:latest
+          docker save -o docker-images/proxy.tar ghcr.io/product-science/proxy:latest
+          docker save -o docker-images/versiond.tar versiond:latest
+          docker save -o docker-images/testapp-server.tar testapp-server:latest
+          docker save -o docker-images/edge-api.tar edge-api:latest
+          docker save -o docker-images/edge-api-router.tar edge-api-router:latest
+          gzip docker-images/*.tar
+          ls -la docker-images/
+      - name: Upload Docker Images
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images
+          path: docker-images/
+          retention-days: 1
+      - name: Upload Devshard Host Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: devshard-host-binaries
+          path: |
+            build/devshardd
+            build/devshardctl
+            build/devshard-version
+          retention-days: 1
+
+  run-test:
+    needs: [build-images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Set up Docker (28.5.2)
+        uses: docker/setup-docker-action@v4
+        with:
+          version: '28.5.2'
+      - name: Download Docker Images
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+          path: docker-images/
+      - name: Download Devshard Host Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: devshard-host-binaries
+          path: build/
+      - name: Load Docker Images
+        run: |
+          gunzip docker-images/*.tar.gz || true
+          sudo docker load -i docker-images/inference-chain.tar || true
+          sudo docker load -i docker-images/decentralized-api.tar || true
+          sudo docker load -i docker-images/inference-mock-server.tar || true
+          sudo docker load -i docker-images/proxy.tar || true
+          sudo docker load -i docker-images/versiond.tar || true
+          sudo docker load -i docker-images/testapp-server.tar || true
+          sudo docker load -i docker-images/edge-api.tar || true
+          sudo docker load -i docker-images/edge-api-router.tar || true
+          rm -rf docker-images/
+      - name: Prepare Devshard Host Binaries
+        run: |
+          chmod +x build/devshardd build/devshardctl || true
+          ls -la build/devshardd build/devshardctl || true
+      - name: Install Make
+        run: sudo apt-get update && sudo apt-get install -y make
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '19'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - name: Start test chain
+        working-directory: local-test-net
+        run: sudo ./launch.sh
+      - name: Run QA-109 test
+        run: |
+          sudo env PATH="$PATH" JAVA_HOME="$JAVA_HOME" GRADLE_USER_HOME="${GRADLE_USER_HOME:-$HOME/.gradle}" \
+            make run-tests TESTS="EpochAcceptanceWeightQaTests"
+      - name: Archive Test Results XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa109-test-results-xml
+          path: ./testermint/build/test-results/**/*.xml
+          retention-days: 30
+      - name: Archive Test Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa109-test-logs
+          path: ./testermint/logs
+          retention-days: 7
+      - name: Publish Test Results
+        uses: dorny/test-reporter@v1
+        if: always()
+        continue-on-error: true
+        with:
+          name: QA-109 EpochAcceptanceWeight
+          path: ./testermint/build/test-results/**/*.xml
+          reporter: java-junit
+          fail-on-error: false
