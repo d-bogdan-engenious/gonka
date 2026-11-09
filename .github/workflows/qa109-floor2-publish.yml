@@ -1,0 +1,12 @@
+name: QA-109 floor2 publish
+on: { workflow_dispatch: {}, push: { branches: [decode-publish] } }
+permissions: { contents: write, actions: read }
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          mkdir -p f; gh run download 42666583350 -R ${{ github.repository }} -n qa109-floor2-inferenced -D f
+          cp f/inferenced-amd64.zip inferenced-floor2.zip; sha256sum inferenced-floor2.zip
+          gh release upload gon593-bins -R ${{ github.repository }} inferenced-floor2.zip --clobber
