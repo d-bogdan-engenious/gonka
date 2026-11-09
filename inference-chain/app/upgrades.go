@@ -5,6 +5,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -86,6 +88,39 @@ func CreateSetDecodeHandler(
 	}
 }
 
+// CreateSetEpochFloorHandler sets epoch_validation_params.min_epoch_acceptance_weight (QA-109)
+// to the value in the gov plan's Info field (default 1 if empty/invalid, clamped to >=1). Used
+// to live-test the epoch-admission floor on tn3. Handler (not MsgUpdateParams) because the latter
+// would drop the lossy schemes[] and wipe the decode config. Reads full params via the keeper.
+func CreateSetEpochFloorHandler(
+	mm *module.Manager,
+	configurator module.Configurator,
+	k inferencekeeper.Keeper,
+) upgradetypes.UpgradeHandler {
+	return func(ctx context.Context, plan upgradetypes.Plan, vm module.VersionMap) (module.VersionMap, error) {
+		if _, ok := vm["capability"]; !ok {
+			vm["capability"] = mm.Modules["capability"].(module.HasConsensusVersion).ConsensusVersion()
+		}
+		floor := int64(1)
+		if v, err := strconv.ParseInt(strings.TrimSpace(plan.Info), 10, 64); err == nil && v >= 1 {
+			floor = v
+		}
+		params, err := k.GetParams(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if params.EpochValidationParams == nil {
+			params.EpochValidationParams = inferencetypes.DefaultEpochValidationParams()
+		}
+		params.EpochValidationParams.MinEpochAcceptanceWeight = floor
+		if err := k.SetParams(ctx, params); err != nil {
+			return nil, err
+		}
+		fmt.Printf("SET-EPOCH-FLOOR: min_epoch_acceptance_weight=%d\n", floor)
+		return mm.RunMigrations(ctx, configurator, vm)
+	}
+}
+
 func (app *App) setupUpgradeHandlers() {
 	app.Logger().Info("Setting up upgrade handlers")
 	upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
@@ -122,6 +157,8 @@ func (app *App) setupUpgradeHandlers() {
 	// v0.2.17 migration). Single-purpose: this binary adds v0.2.17-decode; cosmovisor swaps to it
 	// only at the decode upgrade height.
 	app.setTrackedUpgradeHandler("v0.2.17-decode", CreateSetDecodeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	// QA-109 live floor test: set min_epoch_acceptance_weight from the gov plan Info field.
+	app.setTrackedUpgradeHandler("v0.2.17-floor", CreateSetEpochFloorHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
 }
 
 func (app *App) registerMigrations() {
