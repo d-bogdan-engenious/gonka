@@ -159,6 +159,7 @@ func (app *App) setupUpgradeHandlers() {
 	app.setTrackedUpgradeHandler("v0.2.17-decode", CreateSetDecodeHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
 	// QA-109 live floor test: set min_epoch_acceptance_weight from the gov plan Info field.
 	app.setTrackedUpgradeHandler("v0.2.17-floor", CreateSetEpochFloorHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
+	app.setTrackedUpgradeHandler("v0.2.17-floor2", CreateSetEpochFloorHandler(app.ModuleManager, app.Configurator(), app.InferenceKeeper))
 }
 
 func (app *App) registerMigrations() {

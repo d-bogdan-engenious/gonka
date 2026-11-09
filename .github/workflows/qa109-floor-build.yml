@@ -2,7 +2,7 @@ name: QA-109 floor binary
 on:
   workflow_dispatch:
   push:
-    branches: [qa109-floor]
+    branches: [qa109-floor, qa109-floor2]
 permissions:
   contents: read
 jobs:
@@ -24,12 +24,12 @@ jobs:
           cd public-html/v2/inferenced
           unzip -o inferenced-amd64.zip -d _x >/dev/null
           BIN=$(find _x -type f -name inferenced | head -1)
-          for s in 'v0.2.17-floor' 'v0.2.17-decode' 'v0.2.17-g593a' 'min_epoch_acceptance_weight'; do
+          for s in 'v0.2.17-floor2' 'v0.2.17-floor' 'v0.2.17-decode' 'v0.2.17-g593a' 'min_epoch_acceptance_weight'; do
             n=$(grep -a -c "$s" "$BIN" || true); echo "$s=$n"; test "$n" -ge 1 || { echo "::error::missing $s"; exit 1; }
           done
           echo OK; rm -rf _x
       - uses: actions/upload-artifact@v4
         with:
-          name: qa109-floor-inferenced
+          name: qa109-floor2-inferenced
           path: public-html/v2/inferenced/inferenced-amd64.zip
           retention-days: 5
