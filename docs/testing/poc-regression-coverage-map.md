@@ -37,9 +37,10 @@ regression. They are the priority for scenario-level automation:
 |---|---|---|
 | `BeginBlock` / `EndBlock` epoch-transition dispatch | qa40-gon336-upgrade, qa56-empty-epoch-fallback | Go integration (EndBlock at stage heights) |
 | `onSetNewValidatorsStage`, `moveUpcomingToEffectiveGroup` | preserved-nodes, qa56-empty-epoch-fallback | Go integration (validator switch at SetNewValidators) |
-| `computePrice` (weighted median) | qa69-dynamic-model-coeff, pricing manual runs | Go integration (proposals → median, branches: no-proposal default, even/odd, weight skew) |
-| `getCurrentValidatorWeights` | redeploy valset verification | Go integration |
-| `handleExpiredInferenceWithContext`, `expireInferenceAndIssueRefund` | inference expiry/refund manual runs | Go integration (STARTED→EXPIRED + refund) |
+| `computePrice`/`weightedMedian`/`getWeight` (weighted median) | qa69-dynamic-model-coeff, pricing manual runs | **DONE** — `epochgroup/unit_of_compute_price_test.go` (0→94%, branch-table) |
+| `getCurrentValidatorWeights` | redeploy valset verification | **DONE** — `module/get_current_validator_weights_test.go` |
+| `onSetNewValidatorsStage`, `BeginBlock`, `ValidateAll` (stateful) | clean epoch-transition observation on tn3 | **DONE (live)** — harness `scenarios/03_epoch_transition_outputs.sh` regresses their outputs vs tn3 |
+| inference expiry/refund (`handleExpiredInference*`) | — | SKIP: embedded inference disabled (off-chain via devshards) |
 | epoch-formation halt paths (CreateEpochGroup/initializeUpcomingEpochModelGroups) | poc-consensus-halt-audit (F2) | DONE — `dangling_poc_model_endblock_test.go` |
 
 ## Manual scenario inventory → automation status (consensus/PoC subset)
