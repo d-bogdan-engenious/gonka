@@ -13,7 +13,7 @@ Environment under test: tn3 (`gonka-testnet-3`), build `632338e` / app_version 7
 
 ---
 
-## A. Live tn3 regression — 10 scenarios / 43 checks (green locally + CI)
+## A. Live tn3 regression — 11 scenarios / 48 checks (green locally + CI)
 
 Each scenario automates a manual QA check and asserts one decision/branch per check. CI =
 GitHub Actions `workflow_dispatch` (trigger-based), confirmed green end-to-end on a hosted runner.
@@ -30,6 +30,7 @@ GitHub Actions `workflow_dispatch` (trigger-based), confirmed green end-to-end o
 | 08 | Weight anomaly vs history | current vs previous epoch per-member weight; no member →0 or >4x swing |
 | 09 | Config drift (STATEFUL baseline) | `baseline/<server>_baseline.json` vs live: chain_id, epoch_length/shift, poc_models, validator_count, unit_of_compute_price, sub_group_models — any change fails (re-bless by committing baseline) |
 | 10 | Participant/validator status (fraud/slashing) | `/participant`: none INVALID, no consecutive_invalid_inferences; `excluded_participants/{epoch}` == 0 |
+| 11 | Settlement / reward pipeline (`SettleAccounts`) | `epoch_performance_summary/{last}`: ≥1 summary, total rewarded>0, every participant rewarded (no silent zero), 0 invalidated, 0 unexpected burn |
 
 Server-switchable: a target is `servers/<name>.env` (public RPC/API + chain-id, no secrets) +
 `baseline/<name>_baseline.json`. Switch = `--server <name>`.
